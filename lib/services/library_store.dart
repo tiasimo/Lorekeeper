@@ -18,7 +18,8 @@ class ReaderPrefs {
   String font;
   double size;
   double lineHeight;
-  ReaderPrefs({this.theme = 'Carta', this.font = 'Lora', this.size = 18, this.lineHeight = 1.7});
+  String mode; // Pagine | Scorrimento
+  ReaderPrefs({this.theme = 'Carta', this.font = 'Lora', this.size = 18, this.lineHeight = 1.7, this.mode = 'Pagine'});
 }
 
 /// Libreria: libri, scaffale, progressi e statistiche. Tutto salvato in locale.
@@ -68,11 +69,37 @@ class LibraryStore extends ChangeNotifier {
     reader.font = _prefs.getString('r.font') ?? reader.font;
     reader.size = _prefs.getDouble('r.size') ?? reader.size;
     reader.lineHeight = _prefs.getDouble('r.line') ?? reader.lineHeight;
+    reader.mode = _prefs.getString('r.mode') ?? reader.mode;
     chaptersRead = _prefs.getInt('stats.chapters') ?? 0;
     final s = _prefs.getString('stats.days');
     if (s != null) secondsByDay = Map<String, int>.from(jsonDecode(s) as Map);
     loaded = true;
     notifyListeners();
+    _migrate();
+  }
+
+  /// Libri importati con la versione 0.1: rifà l'indice raggruppando i capitoli.
+  Future<void> _migrate() async {
+    var changed = false;
+    for (final b in books.where((b) => b.format < 2).toList()) {
+      try {
+        final bytes = await File(b.filePath).readAsBytes();
+        final meta = await compute(_parseMeta, bytes);
+        final oldHref = b.chapters.isEmpty ? null : b.chapters[b.lastChapter.clamp(0, b.chapters.length - 1)].href;
+        b.chapters = meta.chapters;
+        b.format = 2;
+        final idx = oldHref == null ? -1 : b.chapters.indexWhere((c) => c.hrefs.contains(oldHref));
+        b.lastChapter = idx < 0 ? 0 : idx;
+        if (idx < 0) b.lastOffset = 0;
+        changed = true;
+      } catch (e) {
+        debugPrint('Migrazione fallita per ${b.title}: $e');
+      }
+    }
+    if (changed) {
+      await _saveNow();
+      notifyListeners();
+    }
   }
 
   Book? byId(String id) {
@@ -257,6 +284,7 @@ class LibraryStore extends ChangeNotifier {
     _prefs.setString('r.font', reader.font);
     _prefs.setDouble('r.size', reader.size);
     _prefs.setDouble('r.line', reader.lineHeight);
+    _prefs.setString('r.mode', reader.mode);
     notifyListeners();
   }
 }

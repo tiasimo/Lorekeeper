@@ -29,7 +29,11 @@ jobs:
         run: |
           flutter create --platforms=android --org com.tiasimo --project-name lorekeeper .
           rm -rf test
-          sed -i 's/android:label="lorekeeper"/android:label="Lorekeeper"/' android/app/src/main/AndroidManifest.xml
+          M=android/app/src/main/AndroidManifest.xml
+          sed -i 's/android:label="lorekeeper"/android:label="Lorekeeper"/' $M
+          # Internet serve per i caratteri e per Gemini (il template lo mette solo in debug).
+          sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' $M
+          grep -n "INTERNET" $M
 
       # Chiave di firma fissa: così ogni nuovo APK si installa sopra il precedente senza perdere i dati.
       - name: Chiave di firma

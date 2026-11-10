@@ -48,7 +48,7 @@ class _BookScreenState extends State<BookScreen> {
                       ],
                       const SizedBox(height: 6),
                       Text(
-                        '${b.chapters.length} sezioni${b.seriesIndex != null ? ' · vol. ${_fmt(b.seriesIndex!)}' : ''}',
+                        '${b.chapters.length} capitoli${b.seriesIndex != null ? ' · vol. ${_fmt(b.seriesIndex!)}' : ''}',
                         style: LK.body(13, color: LK.muted),
                       ),
                       Text('Letto al ${(b.progress * 100).round()}%', style: LK.label(11, spacing: 0)),

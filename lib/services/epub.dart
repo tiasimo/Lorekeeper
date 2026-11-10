@@ -19,7 +19,14 @@ class TextSeg {
 class Para {
   final List<TextSeg> segs;
   final int level;
-  const Para(this.segs, {this.level = 0});
+
+  /// Percorso nell'EPUB di un'illustrazione (paragrafo-immagine).
+  final String? image;
+  const Para(this.segs, {this.level = 0}) : image = null;
+  const Para.image(String path)
+      : image = path,
+        segs = const [],
+        level = 0;
   String get plain => segs.map((s) => s.text).join();
 }
 
@@ -188,8 +195,9 @@ class Epub {
       }
     }
 
-    // Spine = ordine di lettura
-    final chapters = <Chapter>[];
+    // Spine = ordine di lettura. I file che non sono nell'indice
+    // continuano il capitolo precedente (capitoli divisi, illustrazioni).
+    final groups = <(String, List<String>)>[];
     var n = 0;
     for (final ref in _byLocal(opf, 'itemref')) {
       final idref = ref.getAttribute('idref');
@@ -198,27 +206,55 @@ class Epub {
       if (!(item.$2.contains('html') || item.$2.contains('xml'))) continue;
       n++;
       final t = tocTitles[item.$1];
-      chapters.add(Chapter(t ?? 'Sezione $n', item.$1));
+      if (tocTitles.isEmpty) {
+        groups.add(('Sezione $n', [item.$1]));
+      } else if (t != null) {
+        groups.add((t, [item.$1]));
+      } else if (groups.isNotEmpty) {
+        groups.last.$2.add(item.$1);
+      } else {
+        groups.add(('Inizio', [item.$1]));
+      }
     }
+    final chapters = [for (final g in groups) Chapter(g.$1, g.$2)];
 
     if (title.isEmpty) title = 'Senza titolo';
     return EpubMeta(title, author, series, seriesIndex, chapters, cover, ext.isEmpty ? 'jpg' : ext);
   }
 
-  /// Converte un capitolo XHTML in paragrafi.
-  List<Para> chapter(String href) {
+  /// Tutti i paragrafi (e le illustrazioni) di un capitolo.
+  List<Para> chapterParas(Chapter c) => [for (final h in c.hrefs) ...file(h)];
+
+  /// Converte un file XHTML in paragrafi.
+  List<Para> file(String href) {
     final text = readText(href);
     if (text == null) return const [];
     final doc = _parseXml(text);
     if (doc == null) return _fallback(text);
     final body = _firstLocal(doc, 'body') ?? doc.rootElement;
+    final dir = p.posix.dirname(href) == '.' ? '' : p.posix.dirname(href);
     final out = <Para>[];
-    _walk(body, out);
+    _walk(body, out, dir);
     return out;
   }
 
+  static String? _imgSrc(XmlElement e) {
+    for (final a in e.attributes) {
+      final n = a.name.local.toLowerCase();
+      if (n == 'src' || n == 'href') return a.value;
+    }
+    return null;
+  }
+
+  static void _addImage(XmlElement e, List<Para> out, String dir) {
+    final src = _imgSrc(e);
+    if (src == null || src.startsWith('data:')) return;
+    out.add(Para.image(_resolve(dir, src)));
+  }
+
   static const _blocks = {'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'blockquote', 'pre', 'dt', 'dd', 'figcaption', 'td', 'th'};
-  static const _skip = {'script', 'style', 'head', 'title', 'svg', 'img', 'image'};
+  static const _skip = {'script', 'style', 'head', 'title'};
+  static const _imgs = {'img', 'image'};
 
   static bool _hasBlock(XmlElement e) {
     for (final d in e.descendants.whereType<XmlElement>()) {
@@ -228,17 +264,19 @@ class Epub {
     return false;
   }
 
-  static void _walk(XmlElement el, List<Para> out) {
+  static void _walk(XmlElement el, List<Para> out, String dir) {
     for (final child in el.children) {
       if (child is XmlElement) {
         final name = child.name.local.toLowerCase();
         if (_skip.contains(name)) continue;
-        if (_blocks.contains(name)) {
-          _addPara(child, out, name);
+        if (_imgs.contains(name)) {
+          _addImage(child, out, dir);
+        } else if (_blocks.contains(name)) {
+          _addPara(child, out, name, dir);
         } else if (_hasBlock(child)) {
-          _walk(child, out);
+          _walk(child, out, dir);
         } else {
-          _addPara(child, out, name);
+          _addPara(child, out, name, dir);
         }
       } else if (child is XmlText || child is XmlCDATA) {
         final t = (child.value ?? '').replaceAll(RegExp(r'\s+'), ' ').trim();
@@ -247,14 +285,18 @@ class Epub {
     }
   }
 
-  static void _addPara(XmlElement e, List<Para> out, String name) {
+  static void _addPara(XmlElement e, List<Para> out, String name, String dir) {
     final segs = <TextSeg>[];
     _inline(e, false, false, segs);
     final cleaned = _normalize(segs);
-    if (cleaned.isEmpty) return;
-    var level = 0;
-    if (name.length == 2 && name.startsWith('h')) level = int.tryParse(name.substring(1)) ?? 0;
-    out.add(Para(cleaned, level: level));
+    if (cleaned.isNotEmpty) {
+      var level = 0;
+      if (name.length == 2 && name.startsWith('h')) level = int.tryParse(name.substring(1)) ?? 0;
+      out.add(Para(cleaned, level: level));
+    }
+    for (final d in e.descendants.whereType<XmlElement>()) {
+      if (_imgs.contains(d.name.local.toLowerCase())) _addImage(d, out, dir);
+    }
   }
 
   static void _inline(XmlNode node, bool italic, bool bold, List<TextSeg> segs) {
@@ -264,7 +306,7 @@ class Epub {
         if (v.isNotEmpty) segs.add(TextSeg(v, italic: italic, bold: bold));
       } else if (c is XmlElement) {
         final n = c.name.local.toLowerCase();
-        if (_skip.contains(n)) continue;
+        if (_skip.contains(n) || _imgs.contains(n) || n == 'svg') continue;
         if (n == 'br') {
           segs.add(const TextSeg('\n'));
           continue;

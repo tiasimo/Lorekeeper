@@ -17,6 +17,7 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMixin {
   late final AnimationController _main = AnimationController(vsync: this, duration: const Duration(milliseconds: 2800));
   late final AnimationController _flicker = AnimationController(vsync: this, duration: const Duration(milliseconds: 1400))..repeat();
+  late final AnimationController _exit = AnimationController(vsync: this, duration: const Duration(milliseconds: 450));
 
   @override
   void initState() {
@@ -26,7 +27,9 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
 
   Future<void> _start() async {
     await Future.wait([_main.forward(), LibraryStore.I.load()]);
-    await Future.delayed(const Duration(milliseconds: 350));
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (!mounted) return;
+    await _exit.forward();
     if (!mounted) return;
     Navigator.of(context).pushReplacement(PageRouteBuilder(
       transitionDuration: const Duration(milliseconds: 600),
@@ -39,6 +42,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
   void dispose() {
     _main.dispose();
     _flicker.dispose();
+    _exit.dispose();
     super.dispose();
   }
 
@@ -49,7 +53,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
     return Scaffold(
       backgroundColor: const Color(0xFF1C1714),
       body: AnimatedBuilder(
-        animation: Listenable.merge([_main, _flicker]),
+        animation: Listenable.merge([_main, _flicker, _exit]),
         builder: (context, _) {
           final t = _main.value;
           final f = _flicker.value * 2 * math.pi;
@@ -58,29 +62,37 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
           final title = Curves.easeOut.transform(_iv(t, 0.35, 0.72));
           final sub = _iv(t, 0.6, 0.85);
           final flick = 1 + 0.05 * math.sin(f * 3) + 0.03 * math.sin(f * 7);
-          return Stack(
-            alignment: Alignment.center,
-            children: [
-              Positioned(
-                top: MediaQuery.of(context).size.height * 0.36 - 260,
-                child: Opacity(
-                  opacity: glow * (0.92 + 0.08 * math.sin(f * 2)),
-                  child: Transform.scale(
-                    scale: 0.2 + 0.8 * glow,
-                    child: Container(
-                      width: 520,
-                      height: 520,
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: RadialGradient(colors: [Color(0x73F7C86E), Color(0x2EE28C3C), Color(0x001C1714)], stops: [0, 0.38, 0.7]),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+          final out = 1 - Curves.easeIn.transform(_exit.value);
+          return Opacity(
+            opacity: out,
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
+                  Stack(
+                    alignment: Alignment.center,
+                    clipBehavior: Clip.none,
+                    children: [
+                      Positioned(
+                        left: -220,
+                        top: -180,
+                        width: 560,
+                        height: 560,
+                        child: Opacity(
+                          opacity: glow * (0.92 + 0.08 * math.sin(f * 2)),
+                          child: Transform.scale(
+                            scale: 0.2 + 0.8 * glow,
+                            child: Container(
+                              width: 560,
+                              height: 560,
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: RadialGradient(colors: [Color(0x73F7C86E), Color(0x2EE28C3C), Color(0x001C1714)], stops: [0, 0.38, 0.7]),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                   Transform.rotate(
                     angle: 0.035 * math.sin(f),
                     alignment: Alignment.topCenter,
@@ -101,6 +113,8 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
                         ),
                       ]),
                     ),
+                  ),
+                    ],
                   ),
                   const SizedBox(height: 40),
                   Opacity(
@@ -125,7 +139,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
                   ),
                 ],
               ),
-            ],
+            ),
           );
         },
       ),

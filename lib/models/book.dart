@@ -1,10 +1,13 @@
+/// Un capitolo può essere diviso in più file dentro l'EPUB.
 class Chapter {
   final String title;
-  final String href;
-  const Chapter(this.title, this.href);
+  final List<String> hrefs;
+  const Chapter(this.title, this.hrefs);
+  String get href => hrefs.first;
 
-  Map<String, dynamic> toJson() => {'t': title, 'h': href};
-  factory Chapter.fromJson(Map<String, dynamic> j) => Chapter(j['t'] as String, j['h'] as String);
+  Map<String, dynamic> toJson() => {'t': title, 'hs': hrefs};
+  factory Chapter.fromJson(Map<String, dynamic> j) =>
+      Chapter(j['t'] as String, j['hs'] != null ? (j['hs'] as List).cast<String>() : [j['h'] as String]);
 }
 
 class Book {
@@ -15,7 +18,8 @@ class Book {
   double? seriesIndex;
   final String filePath;
   String? coverPath;
-  final List<Chapter> chapters;
+  List<Chapter> chapters;
+  int format; // 2 = capitoli raggruppati dall'indice
 
   // Dorso
   int spineColor;
@@ -42,6 +46,7 @@ class Book {
     required this.filePath,
     this.coverPath,
     required this.chapters,
+    this.format = 2,
     required this.spineColor,
     required this.spineTextColor,
     required this.coverSpineColor,
@@ -70,6 +75,7 @@ class Book {
         'filePath': filePath,
         'coverPath': coverPath,
         'chapters': chapters.map((c) => c.toJson()).toList(),
+        'format': format,
         'spineColor': spineColor,
         'spineTextColor': spineTextColor,
         'coverSpineColor': coverSpineColor,
@@ -93,6 +99,7 @@ class Book {
         filePath: j['filePath'] as String,
         coverPath: j['coverPath'] as String?,
         chapters: ((j['chapters'] as List?) ?? []).map((c) => Chapter.fromJson(Map<String, dynamic>.from(c as Map))).toList(),
+        format: (j['format'] as int?) ?? 1,
         spineColor: j['spineColor'] as int,
         spineTextColor: j['spineTextColor'] as int,
         coverSpineColor: (j['coverSpineColor'] as int?) ?? j['spineColor'] as int,
