@@ -91,7 +91,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             },
           ),
           ListTile(
-            leading: const Icon(Icons.delete_outline, color: LK.accent),
+            leading: Icon(Icons.delete_outline, color: LK.accent),
             title: Text(book != null ? 'Rimuovi dalla libreria' : 'Rimuovi divisorio'),
             onTap: () async {
               Navigator.pop(ctx);
@@ -194,14 +194,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
                             const TextSpan(text: 'Bentornato '),
                             TextSpan(
                               text: '${store.readerName.isEmpty ? 'lettore' : store.readerName}!',
-                              style: const TextStyle(fontStyle: FontStyle.italic, color: LK.accent),
+                              style: TextStyle(fontStyle: FontStyle.italic, color: LK.accent),
                             ),
                           ]),
                         ),
                       ),
                       IconButton(
                         tooltip: 'Impostazioni',
-                        icon: const Icon(Icons.tune, color: LK.accent),
+                        icon: Icon(Icons.tune, color: LK.accent),
                         onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
                       ),
                     ]),
@@ -214,9 +214,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       alignment: Alignment.centerRight,
                       child: OutlinedButton.icon(
                         onPressed: _customize,
-                        icon: const Icon(Icons.edit_outlined, size: 16, color: LK.ink),
+                        icon: Icon(Icons.edit_outlined, size: 16, color: LK.ink),
                         label: Text('PERSONALIZZA', style: LK.label(11, color: LK.ink, spacing: 1.4)),
-                        style: OutlinedButton.styleFrom(backgroundColor: Colors.white, side: const BorderSide(color: Color(0xFFE6DED3))),
+                        style: OutlinedButton.styleFrom(backgroundColor: LK.card, side: BorderSide(color: LK.border)),
                       ),
                     ),
                   ),
@@ -247,7 +247,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(color: LK.paper, borderRadius: BorderRadius.circular(16)),
                   child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    const CircularProgressIndicator(color: LK.accent),
+                    CircularProgressIndicator(color: LK.accent),
                     const SizedBox(height: 14),
                     Text('Sistemo i libri sullo scaffale…', style: LK.body(14)),
                   ]),
@@ -275,12 +275,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 child: Padding(
                   padding: const EdgeInsets.only(left: 12),
                   child: Material(
-                    color: const Color(0xFFEDE6DC),
+                    color: LK.line,
                     shape: const CircleBorder(),
                     child: InkWell(
                       customBorder: const CircleBorder(),
                       onTap: _import,
-                      child: const SizedBox(width: 54, height: 54, child: Icon(Icons.add, color: Color(0xFF6E625A))),
+                      child: SizedBox(width: 54, height: 54, child: Icon(Icons.add, color: LK.muted)),
                     ),
                   ),
                 ),
@@ -313,7 +313,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
         child: Container(
           padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14), border: Border.all(color: LK.line)),
+          decoration: BoxDecoration(color: LK.card, borderRadius: BorderRadius.circular(14), border: Border.all(color: LK.line)),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('Lo scaffale è vuoto', style: LK.display(20)),
             const SizedBox(height: 6),
@@ -332,7 +332,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget _continueCard(Book b) => Padding(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
         child: Material(
-          color: Colors.white,
+          color: LK.card,
           borderRadius: BorderRadius.circular(14),
           child: InkWell(
             borderRadius: BorderRadius.circular(14),
@@ -356,7 +356,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       Expanded(
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(2),
-                          child: LinearProgressIndicator(value: b.progress, minHeight: 4, backgroundColor: const Color(0xFFEFE7DC), color: LK.accent),
+                          child: LinearProgressIndicator(value: b.progress, minHeight: 4, backgroundColor: LK.line, color: LK.accent),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -378,7 +378,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           child: Column(children: [
             Text(v, style: LK.display(22, color: LK.accentDark)),
             const SizedBox(height: 2),
-            Text(l, textAlign: TextAlign.center, style: LK.label(9, color: const Color(0xFF5C4A2A), spacing: 1)),
+            Text(l, textAlign: TextAlign.center, style: LK.label(9, color: LK.parchmentInk, spacing: 1)),
           ]),
         );
     return Padding(
@@ -388,7 +388,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         decoration: BoxDecoration(color: LK.parchment, borderRadius: BorderRadius.circular(6), border: Border.all(color: LK.parchmentBorder)),
         child: Container(
           padding: const EdgeInsets.fromLTRB(14, 16, 14, 16),
-          decoration: BoxDecoration(borderRadius: BorderRadius.circular(3), border: Border.all(color: const Color(0xFFD2B873))),
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(3), border: Border.all(color: LK.parchmentBorder)),
           child: Column(children: [
             Text('DIARIO DI LETTURA', style: LK.display(15)),
             const SizedBox(height: 14),

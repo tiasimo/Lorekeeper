@@ -19,7 +19,7 @@ class Book {
   final String filePath;
   String? coverPath;
   List<Chapter> chapters;
-  int format; // 2 = capitoli raggruppati dall'indice
+  int format; // 3 = capitoli raggruppati dall'indice + entità decodificate
 
   // Dorso
   int spineColor;
@@ -46,7 +46,7 @@ class Book {
     required this.filePath,
     this.coverPath,
     required this.chapters,
-    this.format = 2,
+    this.format = 3,
     required this.spineColor,
     required this.spineTextColor,
     required this.coverSpineColor,

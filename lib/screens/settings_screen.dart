@@ -46,10 +46,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   InputDecoration _dec(String hint, {Widget? suffix}) => InputDecoration(
         hintText: hint,
         filled: true,
-        fillColor: Colors.white,
+        fillColor: LK.card,
         suffixIcon: suffix,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE6DED3))),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE6DED3))),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: LK.border)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: LK.border)),
       );
 
   @override
@@ -69,6 +69,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onSubmitted: LibraryStore.I.setReaderName,
               onChanged: LibraryStore.I.setReaderName,
             ),
+            const SizedBox(height: 26),
+            const SectionLabel('Aspetto'),
+            ListenableBuilder(
+              listenable: LibraryStore.I,
+              builder: (context, _) {
+                const opts = ['Giorno', 'Notte', 'Sistema'];
+                return Align(
+                  alignment: Alignment.centerLeft,
+                  child: Segmented(
+                    labels: opts,
+                    selected: opts.indexOf(LibraryStore.I.appTheme).clamp(0, 2),
+                    onChanged: (i) => LibraryStore.I.setAppTheme(opts[i]),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 6),
+            Text('Sistema segue la modalità chiara o scura del telefono. Di notte anche la lettura passa al tema Notte.',
+                style: LK.body(12, color: LK.muted, style: FontStyle.italic)),
             const SizedBox(height: 26),
             const SectionLabel('Chiave API Gemini'),
             Text(

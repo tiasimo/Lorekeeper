@@ -54,9 +54,9 @@ class _SpineEditorScreenState extends State<SpineEditorScreen> {
           height: 46,
           padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: LK.card,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: on ? LK.accent : const Color(0xFFE6DED3), width: on ? 2 : 1),
+            border: Border.all(color: on ? LK.accent : LK.border, width: on ? 2 : 1),
           ),
           child: Row(children: [
             Container(
@@ -89,7 +89,7 @@ class _SpineEditorScreenState extends State<SpineEditorScreen> {
               ),
             ]),
           ),
-          const Divider(height: 1, color: LK.line),
+          Divider(height: 1, color: LK.line),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 18, 20, 40),
@@ -118,8 +118,8 @@ class _SpineEditorScreenState extends State<SpineEditorScreen> {
                   onChanged: (_) => setState(() {}),
                   decoration: InputDecoration(
                     filled: true,
-                    fillColor: Colors.white,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE6DED3))),
+                    fillColor: LK.card,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: LK.border)),
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -151,9 +151,9 @@ class _SpineEditorScreenState extends State<SpineEditorScreen> {
                           child: Container(
                             padding: const EdgeInsets.fromLTRB(4, 10, 4, 8),
                             decoration: BoxDecoration(
-                              color: Colors.white,
+                              color: LK.card,
                               borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: style == s ? LK.accent : const Color(0xFFE6DED3), width: style == s ? 2 : 1),
+                              border: Border.all(color: style == s ? LK.accent : LK.border, width: style == s ? 2 : 1),
                             ),
                             child: Column(children: [
                               SpineView(title: '', color: Color(bg), textColor: Color(tx), style: s, baseHeight: 64),
@@ -169,7 +169,7 @@ class _SpineEditorScreenState extends State<SpineEditorScreen> {
                 const SectionLabel('Dimensioni'),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: LK.line)),
+                  decoration: BoxDecoration(color: LK.card, borderRadius: BorderRadius.circular(12), border: Border.all(color: LK.line)),
                   child: Column(children: [
                     Row(children: [
                       SizedBox(width: 80, child: Text('Altezza', style: LK.body(14))),

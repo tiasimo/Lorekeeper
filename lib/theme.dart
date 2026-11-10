@@ -3,39 +3,53 @@ import 'package:google_fonts/google_fonts.dart';
 
 /// Palette ispirata allo stile "carta e mattone".
 class LK {
-  static const paper = Color(0xFFFAF7F2);
-  static const ink = Color(0xFF2A2420);
-  static const muted = Color(0xFF6B5F57);
-  static const accent = Color(0xFF9A3F2B);
-  static const accentDark = Color(0xFF7A2F1F);
+  /// Modalità scura attiva (impostata da LorekeeperApp).
+  static bool dark = false;
+
+  static Color _c(int light, int night) => Color(dark ? night : light);
+
+  static Color get paper => _c(0xFFFAF7F2, 0xFF1A1715);
+  static Color get ink => _c(0xFF2A2420, 0xFFEDE3D3);
+  static Color get muted => _c(0xFF6B5F57, 0xFFA99C8E);
+  static Color get accent => _c(0xFF9A3F2B, 0xFFD9784F);
+  static Color get accentDark => _c(0xFF7A2F1F, 0xFFB5583A);
+  static Color get accentSoft => _c(0xFFD9B3A7, 0xFF6E3A2C);
   static const bordeaux = Color(0xFF7A1E2E);
   static const gold = Color(0xFFC9A55A);
-  static const parchment = Color(0xFFF1E3B8);
-  static const parchmentBorder = Color(0xFFDCC58A);
-  static const line = Color(0xFFEDE6DC);
-  static const card = Colors.white;
+  static Color get parchment => _c(0xFFF1E3B8, 0xFF2E2719);
+  static Color get parchmentBorder => _c(0xFFDCC58A, 0xFF5A4A2E);
+  static Color get parchmentInk => _c(0xFF5C4A2A, 0xFFD9C59A);
+  static Color get line => _c(0xFFEDE6DC, 0xFF34302C);
+  static Color get border => _c(0xFFE6DED3, 0xFF3E3832);
+  static Color get card => _c(0xFFFFFFFF, 0xFF24201D);
+  static Color get onAccent => _c(0xFFFFFFFF, 0xFF1A1715);
+  static Color get navOff => _c(0xFFFBE9E2, 0xFF2A1A14);
   static const shelf = Color(0xFF8A6A52);
   static const shelfDark = Color(0xFF6B503D);
 
-  static TextStyle display(double size, {Color color = ink, FontStyle? style, FontWeight weight = FontWeight.w700}) =>
-      GoogleFonts.playfairDisplay(fontSize: size, color: color, fontStyle: style, fontWeight: weight);
+  static TextStyle display(double size, {Color? color, FontStyle? style, FontWeight weight = FontWeight.w700}) =>
+      GoogleFonts.playfairDisplay(fontSize: size, color: color ?? ink, fontStyle: style, fontWeight: weight);
 
-  static TextStyle body(double size, {Color color = ink, FontStyle? style, double? height}) =>
-      GoogleFonts.lora(fontSize: size, color: color, fontStyle: style, height: height);
+  static TextStyle body(double size, {Color? color, FontStyle? style, double? height}) =>
+      GoogleFonts.lora(fontSize: size, color: color ?? ink, fontStyle: style, height: height);
 
-  static TextStyle label(double size, {Color color = muted, double spacing = 1.6}) =>
-      GoogleFonts.montserrat(fontSize: size, color: color, fontWeight: FontWeight.w700, letterSpacing: spacing);
+  static TextStyle label(double size, {Color? color, double spacing = 1.6}) =>
+      GoogleFonts.montserrat(fontSize: size, color: color ?? muted, fontWeight: FontWeight.w700, letterSpacing: spacing);
 
   static ThemeData theme() {
     final base = ThemeData(
       useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(seedColor: accent, surface: paper),
+      brightness: dark ? Brightness.dark : Brightness.light,
+      colorScheme: ColorScheme.fromSeed(seedColor: accent, surface: paper, brightness: dark ? Brightness.dark : Brightness.light),
       scaffoldBackgroundColor: paper,
+      dividerColor: line,
     );
     return base.copyWith(
       textTheme: GoogleFonts.loraTextTheme(base.textTheme).apply(bodyColor: ink, displayColor: ink),
       sliderTheme: base.sliderTheme.copyWith(activeTrackColor: accent, thumbColor: accent, inactiveTrackColor: line),
-      snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating, backgroundColor: ink),
+      snackBarTheme: SnackBarThemeData(behavior: SnackBarBehavior.floating, backgroundColor: dark ? card : const Color(0xFF2A2420)),
+      iconTheme: IconThemeData(color: ink),
+      listTileTheme: ListTileThemeData(iconColor: ink, textColor: ink),
     );
   }
 }

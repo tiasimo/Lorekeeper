@@ -51,6 +51,23 @@ XmlElement? _firstLocal(XmlNode root, String local) {
   return null;
 }
 
+final _numEnt = RegExp(r'&#(x?)([0-9a-fA-F]+);');
+const _named = {'&amp;': '&', '&quot;': '"', '&apos;': "'", '&lt;': '<', '&gt;': '>', '&nbsp;': '\u00A0', '&rsquo;': '\u2019', '&lsquo;': '\u2018', '&ldquo;': '\u201C', '&rdquo;': '\u201D', '&hellip;': '\u2026', '&mdash;': '\u2014', '&ndash;': '\u2013'};
+
+/// Decodifica entità HTML rimaste nel testo (anche doppiamente codificate, es. &amp;#39;).
+String decodeEntities(String s) {
+  if (!s.contains('&')) return s;
+  for (var round = 0; round < 2; round++) {
+    s = s.replaceAllMapped(_numEnt, (m) {
+      final code = int.tryParse(m[2]!, radix: m[1]!.isEmpty ? 10 : 16);
+      return code == null ? m[0]! : String.fromCharCode(code);
+    });
+    _named.forEach((k, v) => s = s.replaceAll(k, v));
+    if (!s.contains('&')) break;
+  }
+  return s;
+}
+
 String _decode(String s) {
   try {
     return Uri.decodeComponent(s);
@@ -119,8 +136,8 @@ class Epub {
     if (opf == null) throw const FormatException('OPF non leggibile');
     final dir = p.posix.dirname(opfPath) == '.' ? '' : p.posix.dirname(opfPath);
 
-    String title = _firstLocal(opf, 'title')?.innerText.trim() ?? '';
-    String author = _firstLocal(opf, 'creator')?.innerText.trim() ?? '';
+    String title = decodeEntities(_firstLocal(opf, 'title')?.innerText ?? '').trim();
+    String author = decodeEntities(_firstLocal(opf, 'creator')?.innerText ?? '').trim();
     String? series;
     double? seriesIndex;
     String? coverId;
@@ -176,7 +193,7 @@ class Epub {
         final navDir = p.posix.dirname(navPath) == '.' ? '' : p.posix.dirname(navPath);
         for (final a in _byLocal(navDoc, 'a')) {
           final href = a.getAttribute('href');
-          final t = a.innerText.replaceAll(RegExp(r'\s+'), ' ').trim();
+          final t = decodeEntities(a.innerText).replaceAll(RegExp(r'\s+'), ' ').trim();
           if (href == null || t.isEmpty) continue;
           tocTitles.putIfAbsent(_resolve(navDir, href), () => t);
         }
@@ -187,7 +204,7 @@ class Epub {
       if (ncx != null) {
         final ncxDir = p.posix.dirname(ncxPath) == '.' ? '' : p.posix.dirname(ncxPath);
         for (final np in _byLocal(ncx, 'navpoint')) {
-          final label = _firstLocal(np, 'text')?.innerText.trim() ?? '';
+          final label = decodeEntities(_firstLocal(np, 'text')?.innerText ?? '').trim();
           final src = _firstLocal(np, 'content')?.getAttribute('src');
           if (src == null || label.isEmpty) continue;
           tocTitles.putIfAbsent(_resolve(ncxDir, src), () => label);
@@ -319,7 +336,7 @@ class Epub {
   static List<TextSeg> _normalize(List<TextSeg> segs) {
     final out = <TextSeg>[];
     for (final s in segs) {
-      final t = s.text == '\n' ? '\n' : s.text.replaceAll(RegExp(r'\s+'), ' ');
+      final t = s.text == '\n' ? '\n' : decodeEntities(s.text).replaceAll(RegExp(r'\s+'), ' ');
       if (t.isEmpty) continue;
       out.add(TextSeg(t, italic: s.italic, bold: s.bold));
     }

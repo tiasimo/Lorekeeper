@@ -65,9 +65,9 @@ class BackLink extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 12),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            const Icon(Icons.chevron_left, size: 18, color: LK.accent),
+            Icon(Icons.chevron_left, size: 18, color: LK.accent),
             Text('TORNA', style: LK.label(11, color: LK.accent, spacing: 1.4)),
-            if (trail != null) Text('  ·  $trail', style: LK.label(11, color: const Color(0xFF8A7E75), spacing: 0.4)),
+            if (trail != null) Text('  ·  $trail', style: LK.label(11, color: LK.muted, spacing: 0.4)),
           ]),
         ),
       );
@@ -80,7 +80,7 @@ class Chip2 extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(color: LK.accent, borderRadius: BorderRadius.circular(6)),
-        child: Text(text.toUpperCase(), style: LK.label(10, color: Colors.white, spacing: 1.4)),
+        child: Text(text.toUpperCase(), style: LK.label(10, color: LK.onAccent, spacing: 1.4)),
       );
 }
 
@@ -148,7 +148,7 @@ class Segmented extends StatelessWidget {
                 duration: const Duration(milliseconds: 180),
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 decoration: BoxDecoration(color: i == selected ? LK.accentDark : Colors.transparent, borderRadius: BorderRadius.circular(7)),
-                child: Text(labels[i].toUpperCase(), style: LK.label(11, color: i == selected ? Colors.white : const Color(0xFFFBE9E2), spacing: 1.2)),
+                child: Text(labels[i].toUpperCase(), style: LK.label(11, color: i == selected ? Colors.white : LK.navOff, spacing: 1.2)),
               ),
             ),
         ]),

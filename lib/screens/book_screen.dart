@@ -64,7 +64,7 @@ class _BookScreenState extends State<BookScreen> {
                         style: FilledButton.styleFrom(backgroundColor: LK.accent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                         onPressed: () => _read(),
                         icon: const Icon(Icons.menu_book_outlined, size: 18),
-                        label: Text(b.lastReadAt == null ? 'INIZIA A LEGGERE' : 'CONTINUA', style: LK.label(12, color: Colors.white, spacing: 1.4)),
+                        label: Text(b.lastReadAt == null ? 'INIZIA A LEGGERE' : 'CONTINUA', style: LK.label(12, color: LK.onAccent, spacing: 1.4)),
                       ),
                     ),
                   ),
@@ -75,12 +75,12 @@ class _BookScreenState extends State<BookScreen> {
                     child: OutlinedButton(
                       style: OutlinedButton.styleFrom(
                         padding: EdgeInsets.zero,
-                        backgroundColor: Colors.white,
-                        side: const BorderSide(color: Color(0xFFE6DED3)),
+                        backgroundColor: LK.card,
+                        side: BorderSide(color: LK.border),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
                       onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SpineEditorScreen(book: b))),
-                      child: const Icon(Icons.brush_outlined, color: LK.ink, size: 20),
+                      child: Icon(Icons.brush_outlined, color: LK.ink, size: 20),
                     ),
                   ),
                 ]),
@@ -107,7 +107,7 @@ class _BookScreenState extends State<BookScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
-        color: Colors.white,
+        color: LK.card,
         borderRadius: BorderRadius.circular(12),
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
@@ -117,13 +117,13 @@ class _BookScreenState extends State<BookScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: current ? const Color(0xFFD9B3A7) : LK.line),
+              border: Border.all(color: current ? LK.accentSoft : LK.line),
             ),
             child: Row(children: [
               SizedBox(width: 34, child: Text('${i + 1}', style: LK.display(16, color: LK.accent))),
               Expanded(child: Text(b.chapters[i].title, style: LK.body(15))),
               if (done) const Icon(Icons.check, color: Color(0xFF2F6B46), size: 18),
-              if (current) const Icon(Icons.bookmark, color: LK.accent, size: 18),
+              if (current) Icon(Icons.bookmark, color: LK.accent, size: 18),
             ]),
           ),
         ),
@@ -138,7 +138,7 @@ class _BookScreenState extends State<BookScreen> {
           Text('La wiki arriva nel prossimo aggiornamento', style: LK.display(17)),
           const SizedBox(height: 6),
           Text('Personaggi, luoghi e termini estratti con Gemini man mano che leggi, condivisi tra i volumi della stessa serie, con schede e grafo delle relazioni.',
-              style: LK.body(13, color: const Color(0xFF4A3B22))),
+              style: LK.body(13, color: LK.parchmentInk)),
         ]),
       );
 }

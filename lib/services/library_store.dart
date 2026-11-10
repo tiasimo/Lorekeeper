@@ -37,6 +37,9 @@ class LibraryStore extends ChangeNotifier {
   final List<String> shelf = [];
 
   String readerName = '';
+
+  /// Aspetto dell'app: Giorno, Notte o Sistema.
+  String appTheme = 'Sistema';
   final ReaderPrefs reader = ReaderPrefs();
   Map<String, int> secondsByDay = {};
   int chaptersRead = 0;
@@ -81,13 +84,15 @@ class LibraryStore extends ChangeNotifier {
   /// Libri importati con la versione 0.1: rifà l'indice raggruppando i capitoli.
   Future<void> _migrate() async {
     var changed = false;
-    for (final b in books.where((b) => b.format < 2).toList()) {
+    for (final b in books.where((b) => b.format < 3).toList()) {
       try {
         final bytes = await File(b.filePath).readAsBytes();
         final meta = await compute(_parseMeta, bytes);
         final oldHref = b.chapters.isEmpty ? null : b.chapters[b.lastChapter.clamp(0, b.chapters.length - 1)].href;
         b.chapters = meta.chapters;
-        b.format = 2;
+        b.format = 3;
+        if (b.title.contains('&')) b.title = meta.title;
+        if (b.author.contains('&')) b.author = meta.author;
         final idx = oldHref == null ? -1 : b.chapters.indexWhere((c) => c.hrefs.contains(oldHref));
         b.lastChapter = idx < 0 ? 0 : idx;
         if (idx < 0) b.lastOffset = 0;
@@ -276,6 +281,12 @@ class LibraryStore extends ChangeNotifier {
   void setReaderName(String n) {
     readerName = n.trim();
     _prefs.setString('readerName', readerName);
+    notifyListeners();
+  }
+
+  void setAppTheme(String t) {
+    appTheme = t;
+    _prefs.setString('appTheme', t);
     notifyListeners();
   }
 
