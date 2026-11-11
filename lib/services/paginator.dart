@@ -1,3 +1,5 @@
+import 'dart:ui' show FontFeature;
+
 import 'package:flutter/material.dart';
 
 import '../theme.dart';
@@ -11,7 +13,20 @@ class PageBlock {
   final String? image;
   final double imageHeight;
   final String? chapterTitle;
-  const PageBlock({this.segs = const [], this.level = 0, this.cut = false, this.image, this.imageHeight = 0, this.chapterTitle});
+  final String? dropCap; // capolettera: la lettera grande a sinistra
+  final double capWidth;
+  final bool ornament; // separatore di scena disegnato
+  const PageBlock({
+    this.segs = const [],
+    this.level = 0,
+    this.cut = false,
+    this.image,
+    this.imageHeight = 0,
+    this.chapterTitle,
+    this.dropCap,
+    this.capWidth = 0,
+    this.ornament = false,
+  });
 }
 
 class PageLayout {
@@ -28,7 +43,18 @@ class PageStyle {
 
   double get gap => (base.fontSize ?? 18) * 0.75;
   TextStyle heading(int level) => LK.display(level <= 2 ? 21 : 18, color: theme.ink);
-  TextStyle get title => LK.display(24, color: theme.ink).copyWith(height: 1.25);
+  TextStyle get title => LK.display(24, color: theme.ink).copyWith(
+        height: 1.25,
+        letterSpacing: 0.6,
+        fontFeatures: const [FontFeature.enable('smcp'), FontFeature.oldstyleFigures()],
+      );
+  static const capLines = 3;
+  double get lineHeight => (base.fontSize ?? 18) * (base.height ?? 1.4);
+  double get capBox => lineHeight * capLines * 0.94; // prima della scala del testo di sistema
+  TextStyle get cap => LK.display(capBox * 1.3, color: theme.accent).copyWith(height: 1 / 1.3);
+  static const ornamentHeight = 52.0;
+  static final _ornament = RegExp(r'^[\s\*•·◆◇◊~#=_+\-–—⁂❖✦✧○●□■◦°※†‡§]+$');
+  static bool isOrnament(String s) => s.trim().isNotEmpty && s.trim().length <= 24 && _ornament.hasMatch(s);
   static const titleTop = 36.0; // simbolo + spazio sopra il titolo
   static const titleBottom = 26.0;
   static const headingPad = EdgeInsets.only(top: 10, bottom: 14);
@@ -60,14 +86,16 @@ class Paginator {
       used = 0;
     }
 
-    TextPainter measure(InlineSpan span, TextStyle style, TextAlign align) {
+    TextPainter measure(InlineSpan span, TextStyle style, TextAlign align, {double? width}) {
       return TextPainter(
         text: TextSpan(style: style, children: [span]),
         textAlign: align,
         textDirection: TextDirection.ltr,
         textScaler: st.scaler,
-      )..layout(maxWidth: w);
+      )..layout(maxWidth: width ?? w);
     }
+
+    var firstText = true;
 
     // Titolo del capitolo in cima alla prima pagina.
     final tp = measure(TextSpan(text: title), st.title, TextAlign.center);
@@ -98,8 +126,54 @@ class Paginator {
         continue;
       }
 
+      // Separatore di scena
+      if (PageStyle.isOrnament(p.plain)) {
+        if (used > 0 && used + PageStyle.ornamentHeight > h) newPage();
+        pages.last.blocks.add(const PageBlock(ornament: true));
+        used += PageStyle.ornamentHeight;
+        continue;
+      }
+
       // Paragrafo: se non entra lo spezzo a fine riga.
       var segs = p.segs;
+
+      // Capolettera sul primo paragrafo del capitolo.
+      final plain = p.plain;
+      if (firstText && plain.length > 80 && RegExp(r'^\p{L}', unicode: true).hasMatch(plain)) {
+        final capTp = measure(TextSpan(text: plain[0]), st.cap, TextAlign.left);
+        final capW = capTp.width + 10;
+        capTp.dispose();
+        final capH = st.scaler.scale(st.capBox);
+        final rest = _split(segs, 1).$2;
+        final sp = measure(PageStyle.span(rest), st.base, st.align, width: w - capW);
+        final lines = sp.computeLineMetrics();
+        List<TextSeg> side = rest, tail = const [];
+        var sideH = sp.height;
+        if (lines.length > PageStyle.capLines) {
+          final last = lines[PageStyle.capLines - 1];
+          final pos = sp.getPositionForOffset(Offset(1, last.baseline - last.ascent / 2));
+          final cutAt = sp.getLineBoundary(pos).end;
+          final total = rest.fold<int>(0, (a, s) => a + s.text.length);
+          if (cutAt > 0 && cutAt < total) {
+            final parts = _split(rest, cutAt);
+            side = parts.$1;
+            tail = _trimLeft(parts.$2);
+            sideH = 0;
+            for (var i = 0; i < PageStyle.capLines; i++) {
+              sideH += lines[i].height;
+            }
+          }
+        }
+        sp.dispose();
+        final blockH = (capH > sideH ? capH : sideH) + (tail.isEmpty ? st.gap : 0);
+        if (used > 0 && used + blockH > h) newPage();
+        pages.last.blocks.add(PageBlock(segs: side, dropCap: plain[0], capWidth: capW, cut: tail.isNotEmpty));
+        used += blockH;
+        firstText = false;
+        if (tail.isEmpty) continue;
+        segs = tail;
+      }
+      firstText = false;
       var guard = 0;
       while (segs.isNotEmpty && guard++ < 200) {
         final pp = measure(PageStyle.span(segs), st.base, st.align);

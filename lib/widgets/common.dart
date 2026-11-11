@@ -4,9 +4,12 @@ import 'package:flutter/material.dart';
 
 import '../models/book.dart';
 import '../theme.dart';
+import 'lk_icons.dart';
+
+export 'lk_icons.dart';
 
 class NavItem {
-  final IconData icon;
+  final LKGlyph icon;
   final String label;
   final VoidCallback onTap;
   const NavItem(this.icon, this.label, this.onTap);
@@ -44,7 +47,7 @@ class FloatingNav extends StatelessWidget {
                     child: SizedBox(
                       width: 54,
                       height: 46,
-                      child: Icon(items[i].icon, color: i == selected ? LK.accent : LK.paper, size: 22),
+                      child: Center(child: LKIcon(items[i].icon, color: i == selected ? LK.accent : LK.paper, size: 23)),
                     ),
                   ),
                 ),
@@ -152,5 +155,41 @@ class Segmented extends StatelessWidget {
               ),
             ),
         ]),
+      );
+}
+
+/// Il libro "esce dallo scaffale": il dorso ruota e diventa la copertina.
+Widget bookHero(Book b, Widget cover) => Hero(
+      tag: 'book-${b.id}',
+      flightShuttleBuilder: (ctx, anim, dir, fromCtx, toCtx) {
+        final coverHero = (dir == HeroFlightDirection.push ? toCtx.widget : fromCtx.widget) as Hero;
+        return AnimatedBuilder(
+          animation: anim,
+          builder: (context, _) {
+            final t = Curves.easeOutCubic.transform(anim.value);
+            return Transform(
+              alignment: Alignment.centerLeft,
+              transform: Matrix4.identity()
+                ..setEntry(3, 2, 0.0015)
+                ..rotateY((1 - t) * 1.35),
+              child: DecoratedBox(
+                decoration: BoxDecoration(boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.3 * (1 - t) + 0.1), blurRadius: 20)]),
+                child: coverHero.child,
+              ),
+            );
+          },
+        );
+      },
+      child: cover,
+    );
+
+/// SafeArea che su tablet centra il contenuto con una larghezza comoda da leggere.
+class TabletSafeArea extends StatelessWidget {
+  final Widget child;
+  final double maxWidth;
+  const TabletSafeArea({super.key, required this.child, this.maxWidth = 760});
+  @override
+  Widget build(BuildContext context) => SafeArea(
+        child: Center(child: ConstrainedBox(constraints: BoxConstraints(maxWidth: maxWidth), child: child)),
       );
 }

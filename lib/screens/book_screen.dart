@@ -26,7 +26,7 @@ class _BookScreenState extends State<BookScreen> {
   Widget build(BuildContext context) {
     final b = widget.book;
     return Scaffold(
-      body: SafeArea(
+      body: TabletSafeArea(
         child: ListenableBuilder(
           listenable: LibraryStore.I,
           builder: (context, _) {
@@ -36,7 +36,7 @@ class _BookScreenState extends State<BookScreen> {
               children: [
                 const Align(alignment: Alignment.centerLeft, child: BackLink(trail: 'Libreria')),
                 Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                  BookCover(book: b, width: 118, height: 170),
+                  bookHero(b, BookCover(book: b, width: 118, height: 170)),
                   const SizedBox(width: 18),
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -64,7 +64,7 @@ class _BookScreenState extends State<BookScreen> {
                       child: FilledButton.icon(
                         style: FilledButton.styleFrom(backgroundColor: LK.accent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                         onPressed: () => _read(),
-                        icon: const Icon(Icons.menu_book_outlined, size: 18),
+                        icon: LKIcon(LKGlyph.read, color: LK.onAccent, size: 20),
                         label: Text(b.lastReadAt == null ? 'INIZIA A LEGGERE' : 'CONTINUA', style: LK.label(12, color: LK.onAccent, spacing: 1.4)),
                       ),
                     ),

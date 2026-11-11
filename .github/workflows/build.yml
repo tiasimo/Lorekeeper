@@ -37,6 +37,9 @@ jobs:
           mkdir -p ~/.android
           cp android-signing/debug.keystore ~/.android/debug.keystore
 
+      - name: Caratteri inclusi nell'app
+        run: python3 ci/fetch_fonts.py
+
       - run: flutter pub get
 
       - name: Icona e avvio con la lanterna

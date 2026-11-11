@@ -76,10 +76,12 @@ class AppPrefs {
   String geminiModel = 'gemini-3.5-flash-lite';
   String shelfSort = 'Manuale'; // Manuale | Serie | Titolo | Ultimo letto
   String shelfFilter = 'Tutti'; // Tutti | In corso | Da leggere | Finiti
+  String dividers = 'Scelti da me'; // Scelti da me | Automatici
 
   Map<String, dynamic> toJson() => {
         'goalMinutes': goalMinutes, 'reminder': reminder, 'reminderHour': reminderHour, 'reminderMinute': reminderMinute,
         'spoiler': spoiler, 'language': language, 'geminiModel': geminiModel, 'shelfSort': shelfSort, 'shelfFilter': shelfFilter,
+        'dividers': dividers,
       };
 
   void fromJson(Map<String, dynamic> j) {
@@ -93,6 +95,7 @@ class AppPrefs {
     geminiModel = v('geminiModel', geminiModel);
     shelfSort = v('shelfSort', shelfSort);
     shelfFilter = v('shelfFilter', shelfFilter);
+    dividers = v('dividers', dividers);
   }
 }
 
@@ -291,6 +294,81 @@ class LibraryStore extends ChangeNotifier {
   }
 
   // ---------- Scaffale ----------
+
+  static const singleShelf = '_single';
+
+  /// Chiave dello scaffale di un libro: la serie, oppure lo scaffale finale dei volumi singoli.
+  String groupOfBook(Book b) => (b.series == null || b.series!.trim().isEmpty) ? singleShelf : 's:${b.series!.trim().toLowerCase()}';
+
+  /// Scaffali nell'ordine della libreria: (chiave, nome serie o null, voci "b:"/"d:").
+  /// I divisori appartengono allo scaffale del libro che li precede.
+  List<(String, String?, List<String>)> shelfGroups() {
+    final order = <String>[];
+    final titles = <String, String?>{};
+    final items = <String, List<String>>{};
+    String? cur;
+    for (final e in shelf) {
+      String key;
+      if (e.startsWith('b:')) {
+        final b = byId(e.substring(2));
+        if (b == null) continue;
+        key = groupOfBook(b);
+        titles[key] ??= key == singleShelf ? null : b.series!.trim();
+      } else {
+        key = cur ?? singleShelf;
+      }
+      cur = key;
+      if (!items.containsKey(key)) {
+        items[key] = [];
+        order.add(key);
+      }
+      items[key]!.add(e);
+    }
+    order.remove(singleShelf);
+    if (items.containsKey(singleShelf)) order.add(singleShelf);
+    return [
+      for (final k in order)
+        if (items[k]!.any((e) => e.startsWith('b:'))) (k, titles[k], items[k]!)
+    ];
+  }
+
+  void addDividerToShelf(String key, String dividerId) {
+    var last = -1;
+    String? cur;
+    for (var i = 0; i < shelf.length; i++) {
+      final e = shelf[i];
+      String k;
+      if (e.startsWith('b:')) {
+        final b = byId(e.substring(2));
+        k = b == null ? (cur ?? singleShelf) : groupOfBook(b);
+      } else {
+        k = cur ?? singleShelf;
+      }
+      cur = k;
+      if (k == key) last = i;
+    }
+    shelf.insert(last < 0 ? shelf.length : last + 1, 'd:$dividerId');
+    save();
+    notifyListeners();
+  }
+
+  /// Sposta una voce di un posto a sinistra/destra restando nel suo scaffale.
+  void moveInShelf(String entry, int dir) {
+    final groups = shelfGroups();
+    for (final g in groups) {
+      final i = g.$3.indexOf(entry);
+      if (i < 0) continue;
+      final j = i + dir;
+      if (j < 0 || j >= g.$3.length) return;
+      final a = shelf.indexOf(entry), b = shelf.indexOf(g.$3[j]);
+      if (a < 0 || b < 0) return;
+      shelf[a] = g.$3[j];
+      shelf[b] = entry;
+      save();
+      notifyListeners();
+      return;
+    }
+  }
 
   void addDivider(String id, {int? at}) {
     shelf.insert(at ?? shelf.length, 'd:$id');

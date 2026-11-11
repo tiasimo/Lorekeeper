@@ -169,7 +169,7 @@ class _WikiViewState extends State<WikiView> {
             onChanged: (v) => setState(() => _q = v),
             decoration: InputDecoration(
               hintText: 'Cerca nella wiki…',
-              prefixIcon: Icon(Icons.search, color: LK.muted),
+              prefixIcon: Padding(padding: const EdgeInsets.all(12), child: LKIcon(LKGlyph.search, color: LK.muted, size: 20)),
               filled: true,
               fillColor: LK.card,
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: LK.border)),
@@ -184,7 +184,7 @@ class _WikiViewState extends State<WikiView> {
               child: OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(backgroundColor: LK.card, side: BorderSide(color: LK.border)),
                 onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => GraphScreen(book: b))),
-                icon: Icon(Icons.hub_outlined, color: LK.accent, size: 18),
+                icon: LKIcon(LKGlyph.graph, color: LK.accent, size: 18),
                 label: Text('Grafo relazioni', style: LK.body(13)),
               ),
             ),
@@ -350,7 +350,7 @@ class _EntryScreenState extends State<EntryScreen> {
     final mentions = notes.map((n) => '${n.bookId}:${n.chapter}').toSet().length;
     final typeLabel = _typeLabels[_types.indexOf(e.type).clamp(0, 2)];
     return Scaffold(
-      body: SafeArea(
+      body: TabletSafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 40),
           children: [
@@ -359,39 +359,36 @@ class _EntryScreenState extends State<EntryScreen> {
               const Spacer(),
               IconButton(onPressed: () => _edit(e), icon: Icon(Icons.edit_outlined, color: LK.ink)),
             ]),
-            Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              GestureDetector(
-                onTap: () => _pickPhoto(e),
-                child: e.photo != null && File(e.photo!).existsSync()
-                    ? ClipRRect(borderRadius: BorderRadius.circular(14), child: Image.file(File(e.photo!), width: 124, height: 156, fit: BoxFit.cover))
-                    : Container(
-                        width: 124,
-                        height: 156,
-                        decoration: BoxDecoration(
-                          color: LK.line,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: LK.border, width: 1.5),
-                        ),
-                        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                          Icon(Icons.add_photo_alternate_outlined, color: LK.muted, size: 30),
-                          const SizedBox(height: 6),
-                          Text('AGGIUNGI FOTO', style: LK.label(10, spacing: 1.2)),
-                        ]),
-                      ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Chip2(typeLabel.substring(0, typeLabel.length - 1)),
-                  const SizedBox(height: 8),
-                  Text(e.name, style: LK.display(28).copyWith(height: 1.05)),
-                  if (e.roleAt(limit).isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(e.roleAt(limit), style: LK.body(13, color: LK.muted, style: FontStyle.italic)),
-                  ],
-                ]),
-              ),
-            ]),
+            ParchmentCard(
+              seal: e.name,
+              child: Column(children: [
+                GestureDetector(
+                  onTap: () => _pickPhoto(e),
+                  child: OvalPortrait(
+                    width: 132,
+                    height: 168,
+                    child: e.photo != null && File(e.photo!).existsSync()
+                        ? Image.file(File(e.photo!), fit: BoxFit.cover)
+                        : Container(
+                            color: LK.line,
+                            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                              Icon(Icons.add_photo_alternate_outlined, color: LK.muted, size: 28),
+                              const SizedBox(height: 6),
+                              Text('AGGIUNGI\nRITRATTO', textAlign: TextAlign.center, style: LK.label(9, spacing: 1.2)),
+                            ]),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(typeLabel.substring(0, typeLabel.length - 1).toUpperCase(), style: LK.label(10, color: LK.parchmentInk, spacing: 2.4)),
+                const SizedBox(height: 4),
+                Text(e.name, textAlign: TextAlign.center, style: LK.display(28, color: LK.ink).copyWith(height: 1.1)),
+                if (e.roleAt(limit).isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(e.roleAt(limit), textAlign: TextAlign.center, style: LK.body(14, color: LK.parchmentInk, style: FontStyle.italic)),
+                ],
+              ]),
+            ),
             const SizedBox(height: 18),
             Row(children: [
               _stat('PRIMA APPARIZIONE', e.manual ? '—' : _where(b, e.first).toLowerCase().replaceAll('cap.', 'Cap.').replaceAll('vol.', 'Vol.')),
@@ -647,7 +644,17 @@ class _GraphScreenState extends State<GraphScreen> {
                               textAlign: TextAlign.center, style: LK.body(15, color: LK.muted, style: FontStyle.italic)),
                         ),
                       )
-                    : InteractiveViewer(
+                    : Container(
+                        margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                        decoration: BoxDecoration(
+                          color: LK.parchment,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: LK.parchmentBorder, width: 1.4),
+                          image: const DecorationImage(image: AssetImage('assets/textures/parchment.png'), repeat: ImageRepeat.repeat, opacity: 0.9, scale: 2),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(7),
+                          child: InteractiveViewer(
                         constrained: false,
                         minScale: 0.3,
                         maxScale: 2.5,
@@ -656,7 +663,7 @@ class _GraphScreenState extends State<GraphScreen> {
                           width: _area,
                           height: _area,
                           child: Stack(children: [
-                            Positioned.fill(child: CustomPaint(painter: _EdgePainter(_pos, _rels, LK.border, LK.muted))),
+                            Positioned.fill(child: CustomPaint(painter: _EdgePainter(_pos, _rels, LK.dark ? const Color(0xFFB59A72) : const Color(0xFF6B4A2E), LK.parchmentInk))),
                             for (final entry in _pos.entries)
                               Positioned(
                                 left: entry.value.dx - 50,
@@ -681,6 +688,8 @@ class _GraphScreenState extends State<GraphScreen> {
                           ]),
                         ),
                       ),
+                        ),
+                      ),
           ),
         ]),
       ),
@@ -698,18 +707,27 @@ class _EdgePainter extends CustomPainter {
   void paint(Canvas c, Size s) {
     final paint = Paint()
       ..color = line
-      ..strokeWidth = 1.6;
+      ..strokeWidth = 1.5
+      ..strokeCap = StrokeCap.round;
     final drawn = <String>{};
     for (final r in rels) {
       final a = pos[r.a], b = pos[r.b];
       if (a == null || b == null) continue;
       final ca = a + const Offset(0, -8), cb = b + const Offset(0, -8);
-      c.drawLine(ca, cb, paint);
+      // linea a inchiostro tratteggiata, come su una vecchia mappa
+      final d = cb - ca;
+      final len = d.distance;
+      if (len < 1) continue;
+      final dir = d / len;
+      for (double t = 0; t < len; t += 11) {
+        final e = math.min(t + 6, len);
+        c.drawLine(ca + dir * t, ca + dir * e, paint);
+      }
       final key = '${r.a}|${r.b}';
       if (drawn.contains(key)) continue;
       drawn.add(key);
       final tp = TextPainter(
-        text: TextSpan(text: r.label, style: LK.label(9, color: text, spacing: 0.2)),
+        text: TextSpan(text: r.label, style: LK.body(11, color: text, style: FontStyle.italic)),
         textDirection: TextDirection.ltr,
         maxLines: 1,
         ellipsis: '…',
@@ -722,4 +740,108 @@ class _EdgePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_EdgePainter old) => true;
+}
+
+
+// ======================================================================
+// Elementi grafici: pergamena, sigillo di ceralacca, ritratto ovale
+// ======================================================================
+
+class ParchmentCard extends StatelessWidget {
+  final Widget child;
+  final String? seal;
+  const ParchmentCard({super.key, required this.child, this.seal});
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(clipBehavior: Clip.none, children: [
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(5),
+        decoration: BoxDecoration(
+          color: LK.parchment,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: LK.parchmentBorder, width: 1.4),
+          boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 14, offset: Offset(0, 6))],
+          image: const DecorationImage(image: AssetImage('assets/textures/parchment.png'), repeat: ImageRepeat.repeat, opacity: 0.9, scale: 2),
+        ),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(18, 22, 18, 22),
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(3), border: Border.all(color: LK.parchmentBorder, width: 0.8)),
+          child: child,
+        ),
+      ),
+      if (seal != null && seal!.isNotEmpty) Positioned(right: 14, top: -14, child: WaxSeal(letter: seal!.characters.first.toUpperCase())),
+    ]);
+  }
+}
+
+class WaxSeal extends StatelessWidget {
+  final String letter;
+  final double size;
+  const WaxSeal({super.key, required this.letter, this.size = 58});
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: size,
+        height: size,
+        child: CustomPaint(
+          painter: _SealPainter(),
+          child: Center(
+            child: Text(letter, style: LK.display(size * 0.42, color: const Color(0xFFF2C6B4)).copyWith(shadows: const [Shadow(color: Color(0x88000000), offset: Offset(0, 1), blurRadius: 1)])),
+          ),
+        ),
+      );
+}
+
+class _SealPainter extends CustomPainter {
+  @override
+  void paint(Canvas c, Size s) {
+    final ctr = Offset(s.width / 2, s.height / 2);
+    final r = s.width / 2;
+    final blob = Path();
+    for (var i = 0; i <= 48; i++) {
+      final a = i / 48 * 2 * math.pi;
+      final rr = r * (0.92 + 0.08 * math.sin(a * 7) * math.cos(a * 3));
+      final p = ctr + Offset(math.cos(a) * rr, math.sin(a) * rr);
+      i == 0 ? blob.moveTo(p.dx, p.dy) : blob.lineTo(p.dx, p.dy);
+    }
+    blob.close();
+    c.drawShadow(blob, Colors.black, 3, false);
+    c.drawPath(
+      blob,
+      Paint()
+        ..shader = RadialGradient(colors: const [Color(0xFFC0392B), Color(0xFF8E1B14), Color(0xFF5E0E0A)], stops: const [0, 0.7, 1])
+            .createShader(Rect.fromCircle(center: ctr - Offset(r * 0.25, r * 0.25), radius: r * 1.3)),
+    );
+    final ring = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4
+      ..color = const Color(0x66000000);
+    c.drawCircle(ctr, r * 0.66, ring);
+    c.drawCircle(ctr + const Offset(0, 1), r * 0.66, ring..color = const Color(0x33FFFFFF));
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class OvalPortrait extends StatelessWidget {
+  final Widget child;
+  final double width, height;
+  const OvalPortrait({super.key, required this.child, required this.width, required this.height});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: width + 10,
+        height: height + 10,
+        padding: const EdgeInsets.all(5),
+        decoration: BoxDecoration(
+          shape: BoxShape.rectangle,
+          borderRadius: BorderRadius.all(Radius.elliptical((width + 10) / 2, (height + 10) / 2)),
+          gradient: const LinearGradient(colors: [Color(0xFFF7E08A), Color(0xFFC9A55A), Color(0xFF8A6A2A), Color(0xFFE2C46B)]),
+          boxShadow: const [BoxShadow(color: Color(0x44000000), blurRadius: 10, offset: Offset(0, 4))],
+        ),
+        child: ClipOval(child: SizedBox(width: width, height: height, child: child)),
+      );
 }

@@ -49,7 +49,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
+      body: TabletSafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 40),
           children: [
@@ -82,6 +82,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 6),
             Text('Sistema segue la modalità chiara o scura del telefono. Di notte anche la lettura passa al tema Notte.',
                 style: LK.body(12, color: LK.muted, style: FontStyle.italic)),
+            const SizedBox(height: 22),
+            const SectionLabel('Divisori dello scaffale'),
+            ListenableBuilder(
+              listenable: LibraryStore.I,
+              builder: (context, _) {
+                const opts = ['Scelti da me', 'Automatici'];
+                return Align(
+                  alignment: Alignment.centerLeft,
+                  child: Segmented(
+                    labels: opts,
+                    selected: opts.indexOf(LibraryStore.I.app.dividers).clamp(0, 1),
+                    onChanged: (i) {
+                      LibraryStore.I.app.dividers = opts[i];
+                      LibraryStore.I.saveAppPrefs();
+                    },
+                  ),
+                );
+              },
+            ),
             const SizedBox(height: 26),
             const SectionLabel('Obiettivo di lettura'),
             ListenableBuilder(
@@ -228,7 +247,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ]),
             const SizedBox(height: 30),
             const SectionLabel('Informazioni'),
-            Text('Lorekeeper 0.4 · il custode delle tue storie', style: LK.body(14)),
+            Text('Lorekeeper 0.5 · il custode delle tue storie', style: LK.body(14)),
             const SizedBox(height: 4),
             Text('In arrivo: evidenziazioni e note, lettura ad alta voce, backup e widget.',
                 style: LK.body(13, color: LK.muted)),

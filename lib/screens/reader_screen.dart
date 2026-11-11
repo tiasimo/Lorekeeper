@@ -15,6 +15,7 @@ import '../services/library_store.dart';
 import '../services/paginator.dart';
 import '../services/wiki.dart';
 import '../theme.dart';
+import '../widgets/lk_icons.dart';
 import '../widgets/page_turner.dart';
 import '../widgets/word_sheet.dart';
 import 'wiki_screens.dart';
@@ -634,6 +635,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   // ---------- disegno ----------
 
+  (String, double) get _texture {
+    switch (_theme.name) {
+      case 'Pergamena':
+        return ('assets/textures/parchment.png', 0.85);
+      case 'Notte':
+        return ('assets/textures/paper.png', 0.12);
+      default:
+        return ('assets/textures/paper.png', 0.55);
+    }
+  }
+
   ReaderTheme get _theme => ReaderTheme.byName(LK.dark ? 'Notte' : prefs.theme);
   TextAlign get _align => prefs.justify ? TextAlign.justify : TextAlign.left;
 
@@ -683,6 +695,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
       child: Scaffold(
         backgroundColor: t.bg,
         body: Stack(children: [
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: t.bg,
+                image: DecorationImage(image: AssetImage(_texture.$1), repeat: ImageRepeat.repeat, opacity: _texture.$2, scale: 2),
+              ),
+            ),
+          ),
           SafeArea(
             child: Column(children: [
               Expanded(
@@ -721,10 +741,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
               padding: EdgeInsets.fromLTRB(4, pad.top + 4, 4, 4),
               decoration: BoxDecoration(color: t.bg, boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 12)]),
               child: Row(children: [
-                IconButton(icon: Icon(Icons.arrow_back, color: t.ink), onPressed: () => Navigator.pop(context)),
+                IconButton(icon: LKIcon(LKGlyph.back, color: t.ink), onPressed: () => Navigator.pop(context)),
                 Expanded(child: Text(book.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.display(16, color: t.ink))),
-                IconButton(tooltip: 'Riassunto', icon: Icon(Icons.history_edu, color: t.ink), onPressed: _showRecap),
-                IconButton(tooltip: 'Capitoli', icon: Icon(Icons.format_list_bulleted, color: t.ink), onPressed: _chaptersSheet),
+                IconButton(tooltip: 'Riassunto', icon: LKIcon(LKGlyph.recap, color: t.ink), onPressed: _showRecap),
+                IconButton(tooltip: 'Capitoli', icon: LKIcon(LKGlyph.chapters, color: t.ink), onPressed: _chaptersSheet),
                 TextButton(onPressed: _settings, child: Text('Aa', style: LK.display(18, color: t.ink))),
               ]),
             ),
@@ -801,7 +821,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   Widget _pagedView(PageStyle st) {
     return LayoutBuilder(builder: (context, c) {
-      _spread = prefs.twoPages && c.maxWidth > c.maxHeight * 1.1;
+      _spread = prefs.twoPages && (c.maxWidth > c.maxHeight * 1.1 || c.maxWidth >= 720);
       final colW = _spread ? (c.maxWidth - _gutter) / 2 : c.maxWidth;
       final size = Size(colW - _pad.horizontal, c.maxHeight - _pad.vertical);
       _ensureLayout(size, st);
@@ -814,6 +834,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
         count: spreads,
         index: (_spread ? _page ~/ 2 : _page).clamp(0, spreads - 1),
         background: st.theme.bg,
+        texture: _texture.$1,
+        textureOpacity: _texture.$2,
         animation: prefs.animation,
         tapEdges: prefs.tapEdges,
         invertTaps: prefs.invertTaps,
@@ -871,6 +893,33 @@ class _ReaderScreenState extends State<ReaderScreen> {
         ),
       );
     }
+    if (b.ornament) {
+      return SizedBox(height: PageStyle.ornamentHeight, child: Center(child: _Fleuron(color: t.accent)));
+    }
+    if (b.dropCap != null) {
+      final capH = st.scaler.scale(st.capBox);
+      return Padding(
+        padding: EdgeInsets.only(bottom: b.cut ? 0 : st.gap),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          SizedBox(
+            width: b.capWidth,
+            height: capH,
+            child: OverflowBox(
+              alignment: Alignment.topLeft,
+              maxHeight: capH * 1.4,
+              child: Text(b.dropCap!, style: st.cap),
+            ),
+          ),
+          Expanded(
+            child: GestureDetector(
+              onTapUp: (d) => _tapText(b.segs, d, width - b.capWidth, st),
+              onLongPressStart: (d) => _lookup(b.segs, d.localPosition, width - b.capWidth, st, _align),
+              child: Text.rich(_richSpan(b.segs, t), textAlign: _align, style: st.base),
+            ),
+          ),
+        ]),
+      );
+    }
     if (b.level > 0) {
       return Padding(
         padding: PageStyle.headingPad,
@@ -900,6 +949,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
           for (final p in _paras)
             if (p.image != null)
               _block(PageBlock(image: p.image, imageHeight: w * (_imgSizes[p.image!]?.aspectRatio == null ? 4 / 3 : 1 / _imgSizes[p.image!]!.aspectRatio)), st, w)
+            else if (p.level == 0 && PageStyle.isOrnament(p.plain))
+              _block(const PageBlock(ornament: true), st, w)
             else
               _block(PageBlock(segs: p.segs, level: p.level), st, w),
           const SizedBox(height: 24),
@@ -916,5 +967,42 @@ class _ReaderScreenState extends State<ReaderScreen> {
         ]);
       }),
     );
+  }
+}
+
+
+/// Fregio al posto degli asterischi tra una scena e l'altra.
+class _Fleuron extends StatelessWidget {
+  final Color color;
+  const _Fleuron({required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    Widget diamond(double size, {bool filled = false}) => Transform.rotate(
+          angle: 0.785398,
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(color: filled ? color : null, border: Border.all(color: color, width: 1)),
+          ),
+        );
+    Widget line() => Container(
+          width: 46,
+          height: 1,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: [color.withValues(alpha: 0), color.withValues(alpha: 0.7)]),
+          ),
+        );
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      line(),
+      const SizedBox(width: 8),
+      diamond(5),
+      const SizedBox(width: 7),
+      diamond(8, filled: true),
+      const SizedBox(width: 7),
+      diamond(5),
+      const SizedBox(width: 8),
+      Transform.flip(flipX: true, child: line()),
+    ]);
   }
 }

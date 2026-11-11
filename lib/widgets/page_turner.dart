@@ -16,6 +16,8 @@ class PageTurner extends StatefulWidget {
   final bool canGoAfter;
   final VoidCallback onCenterTap;
   final Color background;
+  final String? texture; // grana della carta
+  final double textureOpacity;
   final String animation; // Arricciatura | Scorrimento | Nessuna
   final bool tapEdges;
   final bool invertTaps;
@@ -32,6 +34,8 @@ class PageTurner extends StatefulWidget {
     required this.canGoAfter,
     required this.onCenterTap,
     required this.background,
+    this.texture,
+    this.textureOpacity = 0.5,
     this.animation = 'Arricciatura',
     this.tapEdges = true,
     this.invertTaps = false,
@@ -183,7 +187,15 @@ class PageTurnerState extends State<PageTurner> with SingleTickerProviderStateMi
   }
 
   Widget _page(int i) => RepaintBoundary(
-        child: ColoredBox(color: widget.background, child: SizedBox(width: _w, height: _h, child: widget.builder(i))),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: widget.background,
+            image: widget.texture == null
+                ? null
+                : DecorationImage(image: AssetImage(widget.texture!), repeat: ImageRepeat.repeat, opacity: widget.textureOpacity, scale: 2),
+          ),
+          child: SizedBox(width: _w, height: _h, child: widget.builder(i)),
+        ),
       );
 
   @override

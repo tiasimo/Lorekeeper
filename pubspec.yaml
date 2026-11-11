@@ -49,3 +49,6 @@ flutter:
   uses-material-design: true
   assets:
     - assets/dividers/
+    - assets/google_fonts/
+    - assets/textures/
+    - assets/decor/

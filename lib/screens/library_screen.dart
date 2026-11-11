@@ -81,7 +81,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             title: const Text('Sposta a sinistra'),
             onTap: () {
               Navigator.pop(ctx);
-              store.moveShelfEntry(index, index - 1 < 0 ? 0 : index - 1);
+              store.moveInShelf(entry, -1);
             },
           ),
           if (manual) ListTile(
@@ -89,7 +89,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             title: const Text('Sposta a destra'),
             onTap: () {
               Navigator.pop(ctx);
-              store.moveShelfEntry(index, index + 1);
+              store.moveInShelf(entry, 1);
             },
           ),
           ListTile(
@@ -142,8 +142,30 @@ class _LibraryScreenState extends State<LibraryScreen> {
           children: [
             Text('Personalizza scaffale', style: LK.display(22)),
             const SizedBox(height: 6),
-            Text('Tocca un\'illustrazione per aggiungerla in fondo allo scaffale. Tieni premuto un elemento dello scaffale per spostarlo o rimuoverlo.',
+            Text('Ogni serie ha il suo scaffale. Tieni premuto un libro o un divisorio per spostarlo o rimuoverlo.',
                 style: LK.body(13, color: LK.muted)),
+            const SizedBox(height: 14),
+            StatefulBuilder(builder: (ctx, set) {
+              const opts = ['Scelti da me', 'Automatici'];
+              return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Segmented(
+                  labels: opts,
+                  selected: opts.indexOf(store.app.dividers).clamp(0, 1),
+                  onChanged: (i) {
+                    store.app.dividers = opts[i];
+                    store.saveAppPrefs();
+                    set(() {});
+                  },
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  store.app.dividers == 'Automatici'
+                      ? 'Lorekeeper mette da solo un\'illustrazione su ogni scaffale.'
+                      : 'Tocca un\'illustrazione e scegli su quale scaffale metterla.',
+                  style: LK.body(12, color: LK.muted, style: FontStyle.italic),
+                ),
+              ]);
+            }),
             const SizedBox(height: 18),
             GridView.count(
               crossAxisCount: 3,
@@ -156,9 +178,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 for (final d in DividerArt.all)
                   InkWell(
                     borderRadius: BorderRadius.circular(10),
-                    onTap: () {
-                      store.addDivider(d.id);
+                    onTap: () async {
                       Navigator.pop(ctx);
+                      await _placeDivider(d);
                     },
                     child: Column(children: [
                       Expanded(child: Image.asset(d.asset, fit: BoxFit.contain)),
@@ -203,7 +225,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       ),
                       IconButton(
                         tooltip: 'Impostazioni',
-                        icon: Icon(Icons.tune, color: LK.accent),
+                        icon: LKIcon(LKGlyph.settings, color: LK.accent),
                         onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
                       ),
                     ]),
@@ -235,10 +257,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
               bottom: 22,
               child: Center(
                 child: FloatingNav(selected: 0, items: [
-                  NavItem(Icons.collections_bookmark_outlined, 'Libreria', () {}),
-                  NavItem(Icons.menu_book_outlined, 'Continua a leggere', _continue),
-                  NavItem(Icons.add, 'Importa EPUB', _import),
-                  NavItem(Icons.tune, 'Impostazioni', () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()))),
+                  NavItem(LKGlyph.library, 'Libreria', () {}),
+                  NavItem(LKGlyph.read, 'Continua a leggere', _continue),
+                  NavItem(LKGlyph.add, 'Importa EPUB', _import),
+                  NavItem(LKGlyph.settings, 'Impostazioni', () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()))),
                 ]),
               ),
             ),
@@ -331,15 +353,54 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  Widget _shelf() {
-    final entries = _visible;
+  static const _decor = ['candela', 'calamaio', 'pianta', 'clessidra', 'pila'];
+
+  Future<void> _placeDivider(DividerArt d) async {
+    if (store.app.dividers == 'Automatici') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('I divisori sono in modalità automatica: passa a "Scelti da me" per sceglierli tu')),
+      );
+      return;
+    }
+    final groups = store.shelfGroups();
+    if (groups.isEmpty) return;
+    String key = groups.first.$1;
+    if (groups.length > 1) {
+      final picked = await showModalBottomSheet<String>(
+        context: context,
+        backgroundColor: LK.paper,
+        showDragHandle: true,
+        builder: (ctx) => SafeArea(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Padding(padding: const EdgeInsets.only(bottom: 8), child: Text('Su quale scaffale?', style: LK.display(19))),
+            for (final g in groups)
+              ListTile(
+                leading: Container(width: 26, height: 8, decoration: BoxDecoration(color: Wood.forKey(g.$1).base, borderRadius: BorderRadius.circular(2))),
+                title: Text(g.$2 ?? 'Volumi singoli', style: LK.body(15)),
+                onTap: () => Navigator.pop(ctx, g.$1),
+              ),
+          ]),
+        ),
+      );
+      if (picked == null) return;
+      key = picked;
+    }
+    store.addDividerToShelf(key, d.id);
+  }
+
+  Widget _row(String key, List<String> raw, {bool addButton = false}) {
+    final auto = store.app.dividers == 'Automatici';
+    final entries = <String>[for (final e in raw) if (!(auto && e.startsWith('d:'))) e];
+    final books = entries.where((e) => e.startsWith('b:')).length;
+    if (auto && books > 0) entries.add('d:${DividerArt.all[key.hashCode.abs() % DividerArt.all.length].id}');
+    if (books <= 3) entries.add('o:${_decor[(key.hashCode ~/ 7).abs() % _decor.length]}');
     return Column(children: [
       SizedBox(
         height: 240,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 24),
-          itemCount: entries.length + 1,
+          itemCount: entries.length + (addButton ? 1 : 0),
           separatorBuilder: (_, __) => const SizedBox(width: 8),
           itemBuilder: (context, i) {
             if (i == entries.length) {
@@ -360,11 +421,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
               );
             }
             final e = entries[i];
+            if (e.startsWith('o:')) {
+              return Padding(
+                padding: const EdgeInsets.only(left: 18),
+                child: Align(alignment: Alignment.bottomCenter, child: Image.asset('assets/decor/${e.substring(2)}.webp', height: 150, fit: BoxFit.contain)),
+              );
+            }
             if (e.startsWith('d:')) {
               final d = DividerArt.byId(e.substring(2));
               if (d == null) return const SizedBox.shrink();
               return GestureDetector(
-                onLongPress: () => _entryOptions(e),
+                onLongPress: auto ? null : () => _entryOptions(e),
                 child: Align(alignment: Alignment.bottomCenter, child: Image.asset(d.asset, height: 220, fit: BoxFit.contain)),
               );
             }
@@ -373,12 +440,39 @@ class _LibraryScreenState extends State<LibraryScreen> {
             return GestureDetector(
               onTap: () => _openBook(b),
               onLongPress: () => _entryOptions(e),
-              child: Align(alignment: Alignment.bottomCenter, child: SpineView.of(b, baseHeight: 205)),
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: Hero(tag: 'book-${b.id}', child: SpineView.of(b, baseHeight: 205)),
+              ),
             );
           },
         ),
       ),
-      const Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: ShelfBoard()),
+      Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: ShelfBoard(wood: Wood.forKey(key))),
+    ]);
+  }
+
+  Widget _shelf() {
+    final app = store.app;
+    if (app.shelfSort != 'Manuale' || app.shelfFilter != 'Tutti') {
+      return _row('_flat', [for (final e in _visible) if (e.startsWith('b:')) e], addButton: true);
+    }
+    final groups = store.shelfGroups();
+    if (groups.isEmpty) return _row(LibraryStore.singleShelf, const [], addButton: true);
+    return Column(children: [
+      for (var i = 0; i < groups.length; i++) ...[
+        if (groups[i].$2 != null)
+          Padding(
+            padding: EdgeInsets.fromLTRB(24, i == 0 ? 0 : 22, 24, 4),
+            child: Row(children: [
+              Expanded(child: Text(groups[i].$2!, maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.display(18, color: LK.accent, style: FontStyle.italic))),
+              Text('${groups[i].$3.where((e) => e.startsWith('b:')).length} volumi', style: LK.label(10, spacing: 0.6)),
+            ]),
+          )
+        else
+          SizedBox(height: i == 0 ? 0 : 26),
+        _row(groups[i].$1, groups[i].$3, addButton: i == groups.length - 1),
+      ],
     ]);
   }
 

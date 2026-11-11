@@ -13,6 +13,10 @@ class SpineView extends StatelessWidget {
   final double heightScale;
   final double widthScale;
   final double baseHeight;
+  final String? volume; // numero del volume in basso
+  final String? author;
+  final double wear; // 0 – 1: usura dei libri più letti
+  final int seed;
 
   const SpineView({
     super.key,
@@ -23,17 +27,33 @@ class SpineView extends StatelessWidget {
     this.heightScale = 1,
     this.widthScale = 1,
     this.baseHeight = 200,
+    this.volume,
+    this.author,
+    this.wear = 0,
+    this.seed = 0,
   });
 
-  factory SpineView.of(Book b, {double baseHeight = 200}) => SpineView(
-        title: b.title,
-        color: Color(b.spineColor),
-        textColor: Color(b.spineTextColor),
-        style: b.spineStyle,
-        heightScale: b.spineHeight,
-        widthScale: b.spineWidth,
-        baseHeight: baseHeight,
-      );
+  factory SpineView.of(Book b, {double baseHeight = 200}) {
+    String? vol;
+    if (b.seriesIndex != null) {
+      final v = b.seriesIndex!;
+      vol = v == v.roundToDouble() ? '${v.toInt()}' : '$v';
+    }
+    final author = b.author.trim().isEmpty ? null : b.author.trim().split(RegExp(r'\s+')).last;
+    return SpineView(
+      title: b.title,
+      color: Color(b.spineColor),
+      textColor: Color(b.spineTextColor),
+      style: b.spineStyle,
+      heightScale: b.spineHeight,
+      widthScale: b.spineWidth,
+      baseHeight: baseHeight,
+      volume: vol,
+      author: author,
+      wear: (b.progress * 0.7).clamp(0.0, 0.6),
+      seed: b.id.hashCode,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -56,12 +76,45 @@ class SpineView extends StatelessWidget {
         bottom = [diamond, SizedBox(height: w * 0.15), bands];
         break;
       case 'Grimorio':
-        top = [diamond, SizedBox(height: 4), diamond];
-        bottom = [diamond, SizedBox(height: 4), diamond];
+        top = [diamond, const SizedBox(height: 4), diamond];
+        bottom = [diamond, const SizedBox(height: 4), diamond];
         break;
       default:
         break;
     }
+    if (volume != null && baseHeight >= 120) {
+      bottom = [
+        Text(volume!, style: GoogleFonts.playfairDisplay(color: textColor, fontSize: math.max(9, w * 0.3), fontWeight: FontWeight.w700)),
+        SizedBox(height: w * 0.12),
+        ...bottom,
+      ];
+    }
+
+    final titleStyle = GoogleFonts.playfairDisplay(
+      color: Colors.white,
+      fontSize: math.max(9, w * 0.3),
+      fontWeight: FontWeight.w600,
+      letterSpacing: 1.6,
+    );
+    final showAuthor = author != null && baseHeight >= 150 && h > 160;
+
+    // Effetto "oro a caldo": riflesso che attraversa le lettere.
+    Widget foil(Widget child) => ShaderMask(
+          blendMode: BlendMode.srcIn,
+          shaderCallback: (r) => LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color.lerp(textColor, Colors.black, 0.18)!,
+              Color.lerp(textColor, Colors.white, 0.45)!,
+              textColor,
+              Color.lerp(textColor, Colors.black, 0.12)!,
+              Color.lerp(textColor, Colors.white, 0.3)!,
+            ],
+            stops: const [0, 0.3, 0.5, 0.75, 1],
+          ).createShader(r),
+          child: child,
+        );
 
     return Container(
       width: w,
@@ -98,16 +151,16 @@ class SpineView extends StatelessWidget {
                     child: RotatedBox(
                       quarterTurns: 3,
                       child: Center(
-                        child: Text(
-                          title.toUpperCase(),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.playfairDisplay(
-                            color: textColor,
-                            fontSize: math.max(9, w * 0.3),
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 1.6,
-                          ),
+                        child: foil(
+                          Row(mainAxisSize: MainAxisSize.min, children: [
+                            Flexible(
+                              child: Text(title.toUpperCase(), maxLines: 1, overflow: TextOverflow.ellipsis, style: titleStyle),
+                            ),
+                            if (showAuthor) ...[
+                              Text('  ·  ', style: titleStyle.copyWith(fontSize: titleStyle.fontSize! * 0.7)),
+                              Text(author!, maxLines: 1, style: titleStyle.copyWith(fontSize: titleStyle.fontSize! * 0.72, fontStyle: FontStyle.italic, letterSpacing: 0.6)),
+                            ],
+                          ]),
                         ),
                       ),
                     ),
@@ -117,10 +170,38 @@ class SpineView extends StatelessWidget {
               ],
             ),
           ),
+          if (wear > 0.02) Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: _WearPainter(wear, seed)))),
         ],
       ),
     );
   }
+}
+
+class _WearPainter extends CustomPainter {
+  final double wear;
+  final int seed;
+  _WearPainter(this.wear, this.seed);
+
+  @override
+  void paint(Canvas c, Size s) {
+    final r = math.Random(seed);
+    final p = Paint()
+      ..strokeWidth = 0.8
+      ..strokeCap = StrokeCap.round;
+    // graffi chiari
+    for (var i = 0; i < (wear * 24).round(); i++) {
+      final x = r.nextDouble() * s.width, y = r.nextDouble() * s.height;
+      p.color = Colors.white.withValues(alpha: 0.10 + wear * 0.2 * r.nextDouble());
+      c.drawLine(Offset(x, y), Offset(x + (r.nextDouble() - 0.5) * 8, y + r.nextDouble() * 10), p);
+    }
+    // angoli consumati
+    final edge = Paint()..color = Colors.black.withValues(alpha: wear * 0.35);
+    c.drawRect(Rect.fromLTWH(0, 0, s.width, 2 + wear * 3), edge);
+    c.drawRect(Rect.fromLTWH(0, s.height - 2 - wear * 3, s.width, 2 + wear * 3), edge);
+  }
+
+  @override
+  bool shouldRepaint(_WearPainter old) => old.wear != wear || old.seed != seed;
 }
 
 class _Diamond extends StatelessWidget {
@@ -141,19 +222,89 @@ class _Diamond extends StatelessWidget {
       );
 }
 
-/// Asse di legno dello scaffale.
+/// Legni per gli scaffali: ogni serie ne ha uno diverso.
+class Wood {
+  final String name;
+  final Color base, dark, grain;
+  const Wood(this.name, this.base, this.dark, this.grain);
+
+  static const all = [
+    Wood('Noce', Color(0xFF6E4B33), Color(0xFF4E3322), Color(0xFF3E2718)),
+    Wood('Quercia', Color(0xFFA9825A), Color(0xFF86633F), Color(0xFF6E4F30)),
+    Wood('Mogano', Color(0xFF7E3B26), Color(0xFF5A2516), Color(0xFF461A0E)),
+    Wood('Ciliegio', Color(0xFF9A5A3A), Color(0xFF743F26), Color(0xFF5E3019)),
+    Wood('Ebano', Color(0xFF3E3430), Color(0xFF28201C), Color(0xFF181210)),
+    Wood('Acero', Color(0xFFC29A6A), Color(0xFF9C774C), Color(0xFF85623A)),
+  ];
+
+  static Wood forKey(String key) => all[key.hashCode.abs() % all.length];
+}
+
+/// Asse di legno dello scaffale, con venature.
 class ShelfBoard extends StatelessWidget {
-  const ShelfBoard({super.key});
+  final Wood? wood;
+  const ShelfBoard({super.key, this.wood});
+
   @override
-  Widget build(BuildContext context) => Container(
-        height: 14,
-        decoration: BoxDecoration(
-          color: const Color(0xFF8A6A52),
-          borderRadius: BorderRadius.circular(2),
-          boxShadow: const [
-            BoxShadow(color: Color(0xFF6B503D), offset: Offset(0, 5)),
-            BoxShadow(color: Color(0x30000000), blurRadius: 14, offset: Offset(0, 10)),
-          ],
-        ),
-      );
+  Widget build(BuildContext context) {
+    final w = wood ?? Wood.all.first;
+    return Container(
+      height: 16,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(2),
+        boxShadow: [
+          BoxShadow(color: w.dark, offset: const Offset(0, 5)),
+          const BoxShadow(color: Color(0x30000000), blurRadius: 14, offset: Offset(0, 10)),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(2),
+        child: CustomPaint(painter: _GrainPainter(w)),
+      ),
+    );
+  }
+}
+
+class _GrainPainter extends CustomPainter {
+  final Wood wood;
+  _GrainPainter(this.wood);
+
+  @override
+  void paint(Canvas c, Size s) {
+    final rect = Offset.zero & s;
+    c.drawRect(
+      rect,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color.lerp(wood.base, Colors.white, 0.12)!, wood.base, Color.lerp(wood.base, wood.dark, 0.5)!],
+        ).createShader(rect),
+    );
+    final r = math.Random(wood.name.hashCode);
+    final p = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.9;
+    for (var i = 0; i < 7; i++) {
+      final y0 = 2 + r.nextDouble() * (s.height - 4);
+      final amp = 0.6 + r.nextDouble() * 1.6;
+      final freq = 0.008 + r.nextDouble() * 0.02;
+      final phase = r.nextDouble() * 6;
+      p.color = wood.grain.withValues(alpha: 0.25 + r.nextDouble() * 0.3);
+      final path = Path()..moveTo(0, y0);
+      for (double x = 0; x <= s.width; x += 6) {
+        path.lineTo(x, y0 + math.sin(x * freq + phase) * amp);
+      }
+      c.drawPath(path, p);
+    }
+    // nodi del legno
+    for (var i = 0; i < 2; i++) {
+      final cx = r.nextDouble() * s.width, cy = s.height / 2 + (r.nextDouble() - 0.5) * 4;
+      c.drawOval(Rect.fromCenter(center: Offset(cx, cy), width: 14, height: 5), p..color = wood.grain.withValues(alpha: 0.45));
+    }
+    c.drawLine(Offset(0, 0.5), Offset(s.width, 0.5), Paint()..color = Colors.white.withValues(alpha: 0.18));
+  }
+
+  @override
+  bool shouldRepaint(_GrainPainter old) => old.wood != wood;
 }
