@@ -10,16 +10,25 @@ FAMILIES = {
     'Source Sans 3': ['400', '400italic', '600', '700'],
 }
 NAMES = {100: 'Thin', 200: 'ExtraLight', 300: 'Light', 400: 'Regular', 500: 'Medium', 600: 'SemiBold', 700: 'Bold', 800: 'ExtraBold', 900: 'Black'}
-UA = 'Mozilla/5.0 (Windows NT 6.1) AppleWebKit/534.30 (KHTML, like Gecko) Safari/534.30'  # vecchio browser → TTF
+# Con questi user agent Google Fonts risponde con file TTF invece di WOFF2
+UAS = ['Wget/1.21.4', 'curl/8.5.0', 'Python-urllib/3.12', 'Mozilla/5.0 (Linux; U; Android 2.2; en-us) AppleWebKit/533.1']
 
 os.makedirs(OUT, exist_ok=True)
 for fam, variants in FAMILIES.items():
     url = 'https://fonts.googleapis.com/css?family=' + fam.replace(' ', '+') + ':' + ','.join(variants)
-    try:
-        css = urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': UA}), timeout=30).read().decode()
-    except Exception as e:
-        print('salto', fam, e)
+    css = ''
+    for ua in UAS:
+        try:
+            css = urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': ua}), timeout=30).read().decode()
+        except Exception as e:
+            print('ua', ua, e)
+            continue
+        if '.ttf' in css:
+            break
+    if '.ttf' not in css:
+        print('salto', fam, '(nessun TTF)')
         continue
+    done = set()
     for block in re.findall(r'@font-face\s*\{(.*?)\}', css, re.S):
         style = re.search(r'font-style:\s*(\w+)', block).group(1)
         weight = int(re.search(r'font-weight:\s*(\d+)', block).group(1))
@@ -30,6 +39,9 @@ for fam, variants in FAMILIES.items():
         if style == 'italic':
             name = 'Italic' if name == 'Regular' else name + 'Italic'
         fn = f"{OUT}/{fam.replace(' ', '')}-{name}.ttf"
+        if fn in done:
+            continue
+        done.add(fn)
         try:
             data = urllib.request.urlopen(m.group(1), timeout=60).read()
             if data[:4] in (b'\x00\x01\x00\x00', b'true', b'OTTO'):
