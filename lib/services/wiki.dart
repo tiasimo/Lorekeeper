@@ -151,6 +151,8 @@ class Wiki {
   final List<WikiRelation> relations = [];
   /// Appartenenza a gruppi (squadre, gilde, casate…): a = id del personaggio, b = nome del gruppo.
   final List<WikiRelation> groups = [];
+  /// Posizioni (fine volume) in cui Gemini ha analizzato tutti i legami in una volta.
+  final Set<int> linkSnapshots = {};
   final Set<String> processed = {}; // "idLibro:capitolo"
   final Map<String, String> summaries = {}; // "idLibro:capitolo" → riassunto
   final Set<String> pendingRewrite = {}; // voci con novità da integrare nella scheda completa
@@ -247,15 +249,32 @@ class Wiki {
     return changed;
   }
 
-  List<WikiRelation> relationsAt(int limit) => relations.where((r) => r.pos <= limit).toList();
+  /// Ultima analisi dei legami visibile fino a [limit] (null = dati vecchi, capitolo per capitolo).
+  int? snapshotAt(int limit) {
+    int? best;
+    for (final p in linkSnapshots) {
+      if (p <= limit && (best == null || p > best)) best = p;
+    }
+    return best;
+  }
+
+  List<WikiRelation> relationsAt(int limit) {
+    final snap = snapshotAt(limit);
+    return relations.where((r) => snap != null ? r.pos == snap : r.pos <= limit).toList();
+  }
 
   /// Gruppi visibili fino a [limit]: nome → membri. Oltre a quelli indicati da Gemini,
   /// riconosce i gruppi citati nei ruoli dei personaggi (es. "mago dei Twin Horns").
   Map<String, Set<String>> groupsAt(int limit) {
     final out = <String, Set<String>>{};
-    for (final g in groups.where((g) => g.pos <= limit)) {
+    final snap = snapshotAt(limit);
+    for (final g in groups.where((g) => snap != null ? g.pos == snap : g.pos <= limit)) {
       if (entries[g.a] == null) continue;
       out.putIfAbsent(g.b, () => {}).add(g.a);
+    }
+    if (snap != null) {
+      out.removeWhere((_, m) => m.length < 2);
+      return out;
     }
     final chars = entries.values.where((e) => e.type == 'personaggio').toList();
     for (final t in entries.values.where((e) => e.type != 'personaggio' && e.name.length >= 4)) {
@@ -280,6 +299,7 @@ class Wiki {
         'entries': entries.values.map((e) => e.toJson()).toList(),
         'relations': relations.map((r) => r.toJson()).toList(),
         'groups': groups.map((r) => r.toJson()).toList(),
+        'snaps': linkSnapshots.toList(),
         'processed': processed.toList(),
         'summaries': summaries,
         'pending': pendingRewrite.toList(),
@@ -292,6 +312,7 @@ class Wiki {
       w.entries[x.id] = x;
     }
     w.relations.addAll((j['relations'] as List? ?? []).map((r) => WikiRelation.fromJson(r as Map)));
+    w.linkSnapshots.addAll((j['snaps'] as List? ?? []).cast<int>());
     w.groups.addAll((j['groups'] as List? ?? []).map((r) => WikiRelation.fromJson(r as Map)));
     w.processed.addAll((j['processed'] as List? ?? []).cast<String>());
     w.summaries.addAll(Map<String, String>.from((j['summaries'] as Map?) ?? {}));
@@ -305,7 +326,8 @@ class WikiStatus {
   final int done;
   final int total;
   final String? error;
-  const WikiStatus({this.running = false, this.done = 0, this.total = 0, this.error});
+  final String? phase;
+  const WikiStatus({this.running = false, this.done = 0, this.total = 0, this.error, this.phase});
 }
 
 /// Gestione delle wiki: una per serie (o per libro se non fa parte di una serie).
@@ -419,6 +441,12 @@ class WikiStore extends ChangeNotifier {
         } else {
           await _extract(w, b, i, text);
         }
+        // A volume concluso Gemini analizza tutti i legami in una volta sola.
+        if (i == b.chapters.length - 1) {
+          status[key] = WikiStatus(running: true, done: done, total: todo.length, phase: 'Analizzo i legami del volume…');
+          notifyListeners();
+          await _analyzeLinks(w, b, i);
+        }
         done++;
         _reattach(w);
         status[key] = WikiStatus(running: true, done: done, total: todo.length);
@@ -433,6 +461,119 @@ class WikiStore extends ChangeNotifier {
       _running.remove(key);
       notifyListeners();
     }
+  }
+
+  /// Analisi dei legami subito, fino al capitolo in cui sei (senza aspettare la fine del volume).
+  Future<String?> analyzeLinksNow(Book b) async {
+    final key = keyFor(b);
+    if (_running.contains(key)) return 'La wiki si sta già aggiornando: riprova tra poco.';
+    final k = await Secrets.geminiKey();
+    if (k == null || k.isEmpty) return 'Aggiungi la chiave API di Gemini in Impostazioni.';
+    final w = await forBook(b);
+    var ch = targetChapter(b).clamp(0, b.chapters.length - 1);
+    while (ch > 0 && !w.processed.contains('${b.id}:$ch')) {
+      ch--;
+    }
+    _running.add(key);
+    status[key] = const WikiStatus(running: true, phase: 'Analizzo i legami…');
+    notifyListeners();
+    try {
+      await _analyzeLinks(w, b, ch);
+      await save(w);
+      status[key] = const WikiStatus();
+      return null;
+    } on GeminiError catch (e) {
+      status[key] = WikiStatus(error: e.message);
+      return e.message;
+    } catch (e) {
+      status[key] = WikiStatus(error: 'Errore durante l\'analisi dei legami: $e');
+      return 'Errore durante l\'analisi dei legami.';
+    } finally {
+      _running.remove(key);
+      notifyListeners();
+    }
+  }
+
+  /// Rilegge tutte le schede dei personaggi e i riassunti del volume e ricostruisce
+  /// legami (famiglia, amici, amore, rivali, alleati) e gruppi.
+  Future<void> _analyzeLinks(Wiki w, Book b, int chapter) async {
+    final pos = wikiPos(b, chapter);
+    int m(WikiEntry e) => e.notesAt(pos).map((n) => '${n.bookId}:${n.chapter}').toSet().length;
+    final chars = w.entries.values.where((e) => e.type == 'personaggio' && (e.manual || e.notesAt(pos).isNotEmpty)).toList()..sort((x, y) => m(y) - m(x));
+    if (chars.length < 2) return;
+    final per = (110000 / chars.length).clamp(250, 1400).round();
+    String clip(String t) => t.length > per ? '${t.substring(0, per)}…' : t;
+    final sheets = StringBuffer();
+    for (final e in chars) {
+      final d = e.descriptionAt(pos);
+      final text = d.isNotEmpty ? d : e.notesAt(pos).map((n) => n.text).join(' ');
+      sheets.writeln('${e.id} | ${e.name}${e.aliases.isEmpty ? '' : ' (${e.aliases.take(4).join(', ')})'} | ${e.roleAt(pos)}');
+      sheets.writeln('   ${clip(text).replaceAll('\n', ' ')}');
+    }
+    final others = w.entries.values
+        .where((e) => e.type != 'personaggio' && e.notesAt(pos).isNotEmpty)
+        .take(120)
+        .map((e) => '${e.name} | ${e.type} | ${e.roleAt(pos)}')
+        .join('\n');
+    final plot = [
+      for (var i = 0; i <= chapter; i++)
+        if (w.summaries['${b.id}:$i'] != null) 'Cap. ${i + 1}: ${w.summaries['${b.id}:$i']}'
+    ].join('\n');
+    await _throttle();
+    final prompt = '''
+Sei l'archivista della wiki di un lettore del libro «${b.title}». Hai le schede di tutti i personaggi e la trama del volume fino al capitolo ${chapter + 1}. Ricostruisci la rete COMPLETA dei legami e rispondi SOLO con JSON:
+{"relations": [{"a": "id", "b": "id", "label": "...", "kind": "famiglia|amicizia|amore|rivalità|alleanza"}], "groups": [{"name": "...", "members": ["id"]}]}
+
+Regole:
+- Includi tutti i legami significativi tra QUALSIASI coppia di personaggi, non solo con il protagonista.
+- Una sola relazione per coppia, la più importante. "label" è breve e si legge "a <label> b" (es. "madre di", "migliore amico di", "maestro di", "rivale di").
+- "kind": famiglia (parenti, coniugi), amicizia, amore (innamorati, fidanzati), rivalità (rivali, nemici), alleanza (compagni, mentori, alleati, colleghi).
+- "groups": squadre, gilde, casate, ordini, scuole, eserciti di cui fanno parte almeno due personaggi; "members" con gli id.
+- Usa solo le informazioni qui sotto: niente conoscenze esterne sull'opera, niente eventi successivi.
+- In "a", "b" e "members" usa esattamente gli id dell'elenco.
+
+PERSONAGGI (id | nome (altri nomi) | ruolo, poi la scheda):
+$sheets
+ALTRE VOCI (nome | tipo | ruolo):
+${others.isEmpty ? '(nessuna)' : others}
+
+TRAMA DEL VOLUME:
+${plot.isEmpty ? '(non disponibile)' : plot}''';
+    final raw = await Gemini.ask(prompt, maxTokens: 8000, temperature: 0.2, json: true);
+    final data = _parseJson(raw);
+    WikiEntry? byRef(String? ref) => ref == null ? null : (w.entries[ref.trim()] ?? w.find(ref));
+    final rels = <WikiRelation>[];
+    for (final r in (data['relations'] as List? ?? const [])) {
+      if (r is! Map) continue;
+      final a = byRef(r['a'] as String?), c = byRef(r['b'] as String?);
+      final label = (r['label'] as String?)?.trim() ?? '';
+      if (a == null || c == null || a.id == c.id || label.isEmpty) continue;
+      if (rels.any((x) => (x.a == a.id && x.b == c.id) || (x.a == c.id && x.b == a.id))) continue;
+      var kind = (r['kind'] as String?)?.toLowerCase().trim();
+      if (!WikiRelation.kinds.contains(kind)) kind = null;
+      rels.add(WikiRelation(a.id, c.id, label, pos, kind));
+    }
+    final grs = <WikiRelation>[];
+    for (final g in (data['groups'] as List? ?? const [])) {
+      if (g is! Map) continue;
+      var name = (g['name'] as String?)?.trim() ?? '';
+      if (name.isEmpty) continue;
+      name = w.find(name)?.name ?? name;
+      for (final mm in (g['members'] as List? ?? const [])) {
+        final e = mm is String ? byRef(mm) : null;
+        if (e == null || e.type != 'personaggio') continue;
+        if (grs.any((x) => x.a == e.id && x.b == name)) continue;
+        grs.add(WikiRelation(e.id, name, name, pos, 'speciale'));
+      }
+    }
+    if (rels.isEmpty && grs.isEmpty) return;
+    w.relations
+      ..removeWhere((r) => r.pos == pos)
+      ..addAll(rels);
+    w.groups
+      ..removeWhere((r) => r.pos == pos)
+      ..addAll(grs);
+    w.linkSnapshots.add(pos);
   }
 
   Future<Epub?> _open(Book b) async {
@@ -461,7 +602,7 @@ class WikiStore extends ChangeNotifier {
         .join('\n');
     final prompt = '''
 Sei l'archivista della wiki di un lettore. Leggi il capitolo qui sotto (dal libro «${b.title}», capitolo «${b.chapters[chapter].title}») e rispondi SOLO con JSON in questo formato:
-{"summary": "...", "entries": [{"id": "...", "name": "...", "aliases": ["..."], "type": "personaggio|luogo|termine", "role": "...", "note": "..."}], "relations": [{"a": "...", "b": "...", "label": "...", "kind": "famiglia|amicizia|amore|rivalità|alleanza"}], "groups": [{"name": "...", "members": ["..."]}]}
+{"summary": "...", "entries": [{"id": "...", "name": "...", "aliases": ["..."], "type": "personaggio|luogo|termine", "role": "...", "note": "..."}]}
 
 VOCI GIÀ NELLA WIKI (id | nome (altri nomi) | tipo):
 ${known.isEmpty ? '(nessuna)' : known}
@@ -473,8 +614,6 @@ Regole:
 - "name": il nome più completo usato nel testo; "aliases": soprannomi, nomi brevi o titoli usati nel testo.
 - "role": massimo 6 parole (es. "protagonista, ex re reincarnato").
 - "note": tutto ciò che si scopre di nuovo su quella voce in questo capitolo, in italiano, in modo dettagliato (fino a 5 frasi).
-- "relations": TUTTI i legami tra personaggi emersi in questo capitolo, tra qualsiasi coppia e non solo con il protagonista (label breve letta come "a <label> b", es. "madre di", "alleato di"). In "a" e "b" usa l'id se esiste, altrimenti il nome. "kind" è uno tra famiglia, amicizia, amore, rivalità, alleanza. Una sola relazione per coppia: non ripetere quella inversa (se c'è "madre di" non aggiungere "figlio di").
-- "groups": gruppi di cui fanno parte i personaggi in questo capitolo (squadre di avventurieri, gilde, casate, ordini, eserciti, classi…), con il nome del gruppo e gli id (o i nomi) dei membri.
 - "summary": 2 frasi in italiano su cosa succede nel capitolo.
 
 CAPITOLO:
@@ -623,6 +762,7 @@ $items''';
       ..addEntries(keep.entries.where((k) => !k.key.startsWith('__')));
     w.relations.clear();
     w.groups.clear();
+    w.linkSnapshots.clear();
     w.processed.clear();
     w.summaries.clear();
     w.pendingRewrite.clear();

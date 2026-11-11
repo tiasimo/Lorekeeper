@@ -132,7 +132,7 @@ class _WikiViewState extends State<WikiView> {
 
         String banner;
         if (running && st != null) {
-          banner = 'Gemini sta leggendo i capitoli… ${st.done}/${st.total}';
+          banner = st.phase ?? 'Gemini sta leggendo i capitoli… ${st.done}/${st.total}';
         } else if (pend > 0) {
           banner = '$pend capitoli da analizzare fino al punto in cui sei.';
         } else {
@@ -158,6 +158,11 @@ class _WikiViewState extends State<WikiView> {
                     color: LK.card,
                     icon: Icon(Icons.more_vert, color: LK.parchmentInk, size: 20),
                     onSelected: (v) async {
+                      if (v == 'links') {
+                        final err = await WikiStore.I.analyzeLinksNow(b);
+                        if (err != null && context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+                        return;
+                      }
                       if (v != 'rebuild') return;
                       final ok = await showDialog<bool>(
                         context: context,
@@ -173,7 +178,10 @@ class _WikiViewState extends State<WikiView> {
                       );
                       if (ok == true) WikiStore.I.rebuild(b);
                     },
-                    itemBuilder: (_) => [PopupMenuItem(value: 'rebuild', child: Text('Rigenera wiki', style: LK.body(14)))],
+                    itemBuilder: (_) => [
+                      PopupMenuItem(value: 'links', child: Text('Analizza i legami adesso', style: LK.body(14))),
+                      PopupMenuItem(value: 'rebuild', child: Text('Rigenera wiki', style: LK.body(14))),
+                    ],
                   ),
               ]),
               if (running && st != null && st.total > 0) ...[
@@ -688,14 +696,60 @@ class _GraphScreenState extends State<GraphScreen> {
   @override
   void initState() {
     super.initState();
-    WikiStore.I.forBook(widget.book).then((w) {
-      if (!mounted) return;
-      _w = w;
-      _build(w);
-      if (_sky.pos.isEmpty && _all.pos.isNotEmpty) _page = 1;
-      setState(() {});
-    });
+    _load();
   }
+
+  Future<void> _load() async {
+    final w = await WikiStore.I.forBook(widget.book);
+    if (!mounted) return;
+    _w = w;
+    _sky.pos.clear();
+    _all.pos.clear();
+    _sky.edges = const [];
+    _all.edges = const [];
+    _sky.fittedFor = null;
+    _all.fittedFor = null;
+    _mentions.clear();
+    _build(w);
+    if (_sky.pos.isEmpty && _all.pos.isNotEmpty) _page = 1;
+    setState(() {});
+  }
+
+  bool _analyzing = false;
+
+  Future<void> _analyze() async {
+    setState(() => _analyzing = true);
+    final err = await WikiStore.I.analyzeLinksNow(widget.book);
+    if (!mounted) return;
+    setState(() => _analyzing = false);
+    if (err != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+    } else {
+      await _load();
+    }
+  }
+
+  /// Messaggio quando i legami non ci sono ancora: si creano a fine volume.
+  Widget _waiting({required bool sky}) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text('I legami si creano quando finisci il volume: Gemini rilegge tutte le schede insieme per essere più preciso.',
+                textAlign: TextAlign.center, style: LK.body(15, color: sky ? const Color(0xFFA9A6C4) : LK.muted, style: FontStyle.italic)),
+            const SizedBox(height: 16),
+            _analyzing
+                ? CircularProgressIndicator(color: sky ? const Color(0xFFE2C46B) : LK.accent)
+                : OutlinedButton(
+                    onPressed: _analyze,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: sky ? const Color(0xFFE2C46B) : LK.accent,
+                      side: BorderSide(color: sky ? const Color(0xFFE2C46B) : LK.accent),
+                    ),
+                    child: const Text('Analizza adesso fin dove sei'),
+                  ),
+          ]),
+        ),
+      );
 
   // ---------------- dati ----------------
 
@@ -929,13 +983,6 @@ class _GraphScreenState extends State<GraphScreen> {
         );
       });
 
-  Widget _empty(String text, {Color? color}) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(30),
-          child: Text(text, textAlign: TextAlign.center, style: LK.body(15, color: color ?? LK.muted, style: FontStyle.italic)),
-        ),
-      );
-
   Widget _legend(Iterable<String> kinds, {required bool sky}) {
     final present = kinds.toSet();
     return IgnorePointer(
@@ -993,7 +1040,7 @@ class _GraphScreenState extends State<GraphScreen> {
         child: Stack(children: [
           Positioned.fill(child: CustomPaint(painter: _StarfieldPainter())),
           if (_sky.pos.isEmpty)
-            _empty('Ancora nessun legame del protagonista: compariranno man mano che leggi.', color: const Color(0xFFA9A6C4))
+            _waiting(sky: true)
           else
             Positioned.fill(
               child: _viewer(_sky, () => Stack(children: [
@@ -1081,7 +1128,7 @@ class _GraphScreenState extends State<GraphScreen> {
   // ---------------- Tutti i legami: albero a inchiostro ----------------
   Widget _inkTree() {
     final w = _w!;
-    if (_all.pos.isEmpty) return _empty('Nessuna relazione ancora: compariranno man mano che leggi.');
+    if (_all.pos.isEmpty) return _waiting(sky: false);
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
       decoration: BoxDecoration(
