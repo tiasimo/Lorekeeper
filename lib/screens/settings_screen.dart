@@ -172,6 +172,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   final b = app.birthday;
                   if (b == null) return 'Non impostato';
                   final parts = b.split('-');
+                  if (parts.length == 3) return '${int.parse(parts[2])} ${mesi[int.parse(parts[1]) - 1]} ${parts[0]}';
                   return '${int.parse(parts[1])} ${mesi[int.parse(parts[0]) - 1]}';
                 }
 
@@ -203,16 +204,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                     onTap: () async {
                       final now = DateTime.now();
+                      final cur = DateTime.tryParse(app.birthday ?? '');
                       final d = await showDatePicker(
                         context: context,
-                        initialDate: DateTime(2000, now.month, now.day),
-                        firstDate: DateTime(2000, 1, 1),
-                        lastDate: DateTime(2000, 12, 31),
-                        helpText: 'GIORNO E MESE DEL TUO COMPLEANNO',
-                        initialEntryMode: DatePickerEntryMode.calendarOnly,
+                        initialDate: cur ?? DateTime(now.year - 25, now.month, now.day),
+                        firstDate: DateTime(1920, 1, 1),
+                        lastDate: now,
+                        helpText: 'LA TUA DATA DI NASCITA',
+                        initialDatePickerMode: DatePickerMode.year,
                       );
                       if (d == null) return;
-                      app.birthday = '${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+                      app.birthday = '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
                       LibraryStore.I.saveAppPrefs();
                     },
                   ),

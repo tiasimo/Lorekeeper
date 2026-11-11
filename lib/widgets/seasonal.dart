@@ -38,7 +38,9 @@ String currentSeason([DateTime? now]) {
   bool between(DateTime a, DateTime b) => !day.isBefore(a) && !day.isAfter(b);
   String two(int n) => n.toString().padLeft(2, '0');
   final app = LibraryStore.I.app;
-  if (app.birthday == '${two(d.month)}-${two(d.day)}') return 'compleanno';
+  // compleanno salvato come "AAAA-MM-GG" (o "MM-GG" nelle versioni precedenti)
+  final bd = app.birthday;
+  if (bd != null && bd.endsWith('${two(d.month)}-${two(d.day)}')) return 'compleanno';
   final inst = DateTime.tryParse(app.installedOn ?? '');
   if (inst != null && inst.year < d.year && inst.month == d.month && inst.day == d.day) return 'anniversario';
   if (d.month == 12 && d.day <= 26) return 'natale';
@@ -55,6 +57,14 @@ String currentSeason([DateTime? now]) {
   if (md >= 621 && md < 923) return 'estate';
   if (md >= 923 && md < 1221) return 'autunno';
   return 'inverno';
+}
+
+/// Anni che compi oggi (se hai indicato l'anno di nascita).
+int? birthdayAge() {
+  final b = LibraryStore.I.app.birthday;
+  if (b == null || b.length < 10) return null;
+  final y = int.tryParse(b.substring(0, 4));
+  return y == null ? null : DateTime.now().year - y;
 }
 
 /// Anni da quando è stato installato Lorekeeper.
@@ -217,6 +227,14 @@ class _DecorPainter extends CustomPainter {
       case 'compleanno':
         _bunting(c, s, const [Color(0xFFE91E63), Color(0xFFFFC107), Color(0xFF29B6F6), Color(0xFF66BB6A), Color(0xFFAB47BC)]);
         _cake(c, Offset(right - 6, boardTop), candles: 3);
+        final age = birthdayAge();
+        if (age != null) {
+          final tp = TextPainter(
+            text: TextSpan(text: '$age', style: const TextStyle(color: Color(0xFFC2185B), fontSize: 12, fontWeight: FontWeight.w800)),
+            textDirection: TextDirection.ltr,
+          )..layout();
+          tp.paint(c, Offset(right - 6 - tp.width / 2, boardTop - 15));
+        }
         _balloon(c, Offset(right - 2, 52), const Color(0xFFE53935));
         _balloon(c, Offset(right + 10, 64), const Color(0xFF42A5F5));
         _confetti(c, s, r, const [Color(0xFFFFC107), Color(0xFFE91E63), Color(0xFF29B6F6)], 24);
