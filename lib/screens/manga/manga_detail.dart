@@ -186,7 +186,8 @@ class _MangaDetailState extends State<MangaDetail> {
                       [if ((c.scanlator ?? '').isNotEmpty) c.scanlator!, if (current && !read) 'pagina ${m.lastPage + 1}'].join(' · '),
                       style: LK.label(9, spacing: 0.3),
                     ),
-                    trailing: read ? Icon(Icons.check, color: LK.muted, size: 18) : (current ? Icon(Icons.bookmark, color: LK.accent, size: 18) : null),
+                    leading: m.bookmarks.contains(c.url) ? Icon(Icons.bookmark, color: LK.gold, size: 18) : null,
+                    trailing: read ? Icon(Icons.check, color: LK.muted, size: 18) : (current ? Icon(Icons.play_arrow_rounded, color: LK.accent, size: 20) : null),
                     onTap: () => _read(c, page: current && !read ? m.lastPage : 0),
                     onLongPress: () => setState(() => store.markRead(m, c, read: !read)),
                   );

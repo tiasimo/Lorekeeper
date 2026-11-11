@@ -35,6 +35,11 @@ class MangaImages {
   }
 
   static Future<Uint8List?> _load(String url, Map<String, String>? headers, String? sourceId, String? managerId) async {
+    if (url.startsWith('/')) {
+      final local = await File(url).readAsBytes();
+      _mem[url] = local;
+      return local;
+    }
     final f = File(p.join((await _cacheDir()).path, _name(url)));
     Uint8List? bytes;
     if (await f.exists()) bytes = await f.readAsBytes();

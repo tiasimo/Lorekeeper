@@ -32,6 +32,7 @@ class SavedManga {
   List<String> genres;
   List<MChapter> chapters;
   final Set<String> read; // url dei capitoli letti
+  final Set<String> bookmarks = {}; // capitoli segnati
   String? lastChapter; // url
   int lastPage;
   bool inLibrary;
@@ -111,6 +112,7 @@ class SavedManga {
         'alP': alProgress,
         'alS': alScore,
         'alT': alTotal,
+        'bm': bookmarks.toList(),
       };
 
   factory SavedManga.fromJson(Map j) => SavedManga(
@@ -134,7 +136,9 @@ class SavedManga {
         alStatus: j['alSt'] as String?,
         alProgress: (j['alP'] as int?) ?? 0,
         alScore: ((j['alS'] as num?) ?? 0).toDouble(),
-      )..alTotal = j['alT'] as int?;
+      )
+        ..alTotal = j['alT'] as int?
+        ..bookmarks.addAll(((j['bm'] as List?) ?? []).cast<String>());
 
   /// Numero del capitolo per AniList (che conta i capitoli letti).
   int chapterNumber(MChapter c) {
