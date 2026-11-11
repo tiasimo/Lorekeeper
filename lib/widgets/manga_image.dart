@@ -67,6 +67,18 @@ class MangaImages {
     return bytes;
   }
 
+  /// Percorso su disco dell'immagine (la scarica se serve), per il widget della Home.
+  static Future<String?> localPath(String url, {String? sourceId, String? managerId}) async {
+    if (url.startsWith('/')) return url;
+    try {
+      await get(url, sourceId: sourceId, managerId: managerId);
+      final f = File(p.join((await _cacheDir()).path, _name(url)));
+      return await f.exists() ? f.path : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Svuota la cache su disco.
   static Future<void> clear() async {
     _mem.clear();

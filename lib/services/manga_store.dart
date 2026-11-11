@@ -14,6 +14,7 @@ import '../widgets/manga_image.dart';
 import 'anilist.dart';
 import 'cover_colors.dart';
 import 'library_store.dart';
+import 'manga_downloads.dart';
 import 'reminders.dart';
 
 /// Capitolo di un manga salvato.
@@ -45,6 +46,7 @@ class SavedManga {
   double spineHeight = 1.0, spineWidth = 1.0;
   int? spineTitleColor;
   int newChapters = 0; // trovati all'ultimo aggiornamento
+  final Set<String> categories = {};
   String? lastChapter; // url
   int lastPage;
   bool inLibrary;
@@ -196,6 +198,7 @@ class SavedManga {
         'sw': spineWidth,
         'stit': spineTitleColor,
         'new': newChapters,
+        'cat': categories.toList(),
       };
 
   factory SavedManga.fromJson(Map j) => SavedManga(
@@ -231,7 +234,8 @@ class SavedManga {
         ..spineHeight = ((j['sh'] as num?) ?? 1).toDouble()
         ..spineWidth = ((j['sw'] as num?) ?? 1).toDouble()
         ..spineTitleColor = j['stit'] as int?
-        ..newChapters = (j['new'] as int?) ?? 0;
+        ..newChapters = (j['new'] as int?) ?? 0
+        ..categories.addAll(((j['cat'] as List?) ?? []).cast<String>());
 
   /// Numero del capitolo per AniList (che conta i capitoli letti).
   int chapterNumber(MChapter c) {
@@ -240,6 +244,15 @@ class SavedManga {
     final i = ordered.indexWhere((x) => x.url == c.url);
     return i < 0 ? 0 : i + 1;
   }
+}
+
+/// Voce della cronologia o delle novità.
+class MangaEvent {
+  final String mangaKey, chapterUrl, chapterName;
+  final DateTime at;
+  MangaEvent(this.mangaKey, this.chapterUrl, this.chapterName, this.at);
+  Map<String, dynamic> toJson() => {'m': mangaKey, 'c': chapterUrl, 'n': chapterName, 't': at.millisecondsSinceEpoch};
+  factory MangaEvent.fromJson(Map j) => MangaEvent(j['m'] as String, j['c'] as String, (j['n'] as String?) ?? '', DateTime.fromMillisecondsSinceEpoch(j['t'] as int));
 }
 
 /// Sezione Manga: estensioni (Mangayomi e Mihon/Aniyomi) tramite il runtime di AnymeX,
@@ -254,6 +267,88 @@ class MangaStore extends ChangeNotifier {
   bool _loaded = false;
   Future<void>? _bridge;
   String? bridgeError;
+
+  final List<MangaEvent> history = [];
+  final List<MangaEvent> updates = [];
+  final List<String> categoryNames = [];
+
+  SavedManga? byKey(String k) => _all[k];
+
+  File _f(String n) => File(p.join(LibraryStore.I.dataDir, n));
+
+  void _saveEvents() {
+    _f('manga_history.json').writeAsString(jsonEncode(history.map((e) => e.toJson()).toList()));
+    _f('manga_updates.json').writeAsString(jsonEncode(updates.map((e) => e.toJson()).toList()));
+  }
+
+  Future<void> _loadEvents() async {
+    try {
+      final h = _f('manga_history.json');
+      if (await h.exists()) history.addAll((jsonDecode(await h.readAsString()) as List).map((e) => MangaEvent.fromJson(e as Map)));
+      final u = _f('manga_updates.json');
+      if (await u.exists()) updates.addAll((jsonDecode(await u.readAsString()) as List).map((e) => MangaEvent.fromJson(e as Map)));
+      final prefs = await SharedPreferences.getInstance();
+      categoryNames.addAll(prefs.getStringList('manga.categories') ?? const []);
+    } catch (_) {}
+  }
+
+  Future<void> saveCategories() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('manga.categories', categoryNames);
+    notifyListeners();
+  }
+
+  void removeHistory(MangaEvent e) {
+    history.remove(e);
+    _saveEvents();
+    notifyListeners();
+  }
+
+  void clearHistory() {
+    history.clear();
+    _saveEvents();
+    notifyListeners();
+  }
+
+  /// Sposta un manga su un'altra sorgente tenendo letti, segnalibri, AniList, dorso e categorie.
+  Future<SavedManga> migrate(SavedManga from, Source to, DMedia media) async {
+    final dest = entry(to, media);
+    await refresh(to, dest);
+    final readNums = from.chapters.where((c) => from.read.contains(c.url)).map(from.chapterNumber).toSet();
+    final bmNums = from.chapters.where((c) => from.bookmarks.contains(c.url)).map(from.chapterNumber).toSet();
+    for (final c in dest.chapters) {
+      final n = dest.chapterNumber(c);
+      if (readNums.contains(n)) dest.read.add(c.url);
+      if (bmNums.contains(n)) dest.bookmarks.add(c.url);
+    }
+    final lastNum = from.chapters.where((c) => c.url == from.lastChapter).map(from.chapterNumber).firstOrNull;
+    if (lastNum != null) {
+      dest.lastChapter = dest.chapters.where((c) => dest.chapterNumber(c) == lastNum).map((c) => c.url).firstOrNull;
+      dest.lastPage = from.lastPage;
+    }
+    dest
+      ..inLibrary = true
+      ..addedAt = from.addedAt
+      ..lastReadAt = from.lastReadAt
+      ..anilistId = from.anilistId
+      ..alStatus = from.alStatus
+      ..alProgress = from.alProgress
+      ..alScore = from.alScore
+      ..alTotal = from.alTotal
+      ..spineColor = from.spineColor
+      ..spineTextColor = from.spineTextColor
+      ..coverSpineColor = from.coverSpineColor
+      ..coverSpineTextColor = from.coverSpineTextColor
+      ..spinePalette = from.spinePalette
+      ..spineStyle = from.spineStyle
+      ..spineHeight = from.spineHeight
+      ..spineWidth = from.spineWidth
+      ..spineTitleColor = from.spineTitleColor;
+    dest.categories.addAll(from.categories);
+    from.inLibrary = false;
+    save();
+    return dest;
+  }
 
   List<SavedManga> get library => _all.values.where((m) => m.inLibrary).toList()
     ..sort((a, b) => (b.lastReadAt ?? b.addedAt).compareTo(a.lastReadAt ?? a.addedAt));
@@ -272,6 +367,7 @@ class MangaStore extends ChangeNotifier {
         }
       }
     } catch (_) {}
+    await _loadEvents();
     notifyListeners();
   }
 
@@ -353,7 +449,11 @@ class MangaStore extends ChangeNotifier {
     final was = m.read.contains(c.url);
     read ? m.read.add(c.url) : m.read.remove(c.url);
     save();
-    if (read && !was) _syncProgress(m, m.chapterNumber(c));
+    if (read && !was) {
+      _syncProgress(m, m.chapterNumber(c));
+      LibraryStore.I.mangaChapterFinished();
+      MangaDownloads.I.onRead(m, c);
+    }
   }
 
   /// Aggiorna AniList quando finisci un capitolo (solo se vai avanti).
@@ -462,7 +562,15 @@ class MangaStore extends ChangeNotifier {
           final before = m.chapters.map((c) => c.url).toSet();
           try {
             await refresh(s, m);
-            final fresh = m.chapters.where((c) => !before.contains(c.url) && !m.read.contains(c.url)).length;
+            final freshList = m.chapters.where((c) => !before.contains(c.url) && !m.read.contains(c.url)).toList();
+            final fresh = freshList.length;
+            if (before.isNotEmpty) {
+              final now = DateTime.now();
+              for (final c in freshList.take(50)) {
+                updates.insert(0, MangaEvent(m.key, c.url, c.name, now));
+              }
+              if (updates.length > 400) updates.removeRange(400, updates.length);
+            }
             if (before.isNotEmpty && fresh > 0) {
               m.newChapters += fresh;
               found += fresh;
@@ -480,6 +588,7 @@ class MangaStore extends ChangeNotifier {
       final names = list.where((m) => m.newChapters > 0).map((m) => '${m.title} (+${m.newChapters})').take(4).join(', ');
       Reminders.newChapters(found, names);
     }
+    _saveEvents();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('manga.lastRefresh', DateTime.now().millisecondsSinceEpoch);
     save();
@@ -497,6 +606,14 @@ class MangaStore extends ChangeNotifier {
   }
 
   void setProgress(SavedManga m, MChapter c, int page) {
+    if (history.isEmpty || history.first.chapterUrl != c.url) {
+      history.removeWhere((e) => e.chapterUrl == c.url);
+      history.insert(0, MangaEvent(m.key, c.url, c.name, DateTime.now()));
+      if (history.length > 300) history.removeRange(300, history.length);
+      _saveEvents();
+    } else {
+      history[0] = MangaEvent(m.key, c.url, c.name, DateTime.now());
+    }
     m.lastChapter = c.url;
     m.lastPage = page;
     m.newChapters = 0;

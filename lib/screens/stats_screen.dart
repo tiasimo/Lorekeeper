@@ -24,8 +24,19 @@ class _StatsScreenState extends State<StatsScreen> {
   DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
   int _year = DateTime.now().year;
 
-  int _secs(DateTime d) => store.secondsByDay[LibraryStore.dayKey(d)] ?? 0;
-  int _chs(DateTime d) => store.chaptersByDay[LibraryStore.dayKey(d)] ?? 0;
+  int _what = 0; // 0 tutto, 1 novel, 2 manga
+
+  int _secs(DateTime d) {
+    final k = LibraryStore.dayKey(d);
+    final n = store.secondsByDay[k] ?? 0, m = store.mangaSecondsByDay[k] ?? 0;
+    return _what == 1 ? n : (_what == 2 ? m : n + m);
+  }
+
+  int _chs(DateTime d) {
+    final k = LibraryStore.dayKey(d);
+    final n = store.chaptersByDay[k] ?? 0, m = store.mangaChaptersByDay[k] ?? 0;
+    return _what == 1 ? n : (_what == 2 ? m : n + m);
+  }
 
   String _fmt(int secs) {
     final m = secs ~/ 60;
@@ -77,7 +88,7 @@ class _StatsScreenState extends State<StatsScreen> {
       if (s > best) best = s;
       chs += _chs(DateTime(first.year, first.month, d));
     }
-    final done = _finished((d) => d.year == first.year && d.month == first.month);
+    final done = _what == 2 ? <(Book, DateTime)>[] : _finished((d) => d.year == first.year && d.month == first.month);
     final today = DateTime.now();
     return [
       Row(children: [
@@ -155,7 +166,7 @@ class _StatsScreenState extends State<StatsScreen> {
       chs += _chs(d);
     }
     final maxM = math.max(1, perMonth.reduce(math.max));
-    final done = _finished((d) => d.year == _year);
+    final done = _what == 2 ? <(Book, DateTime)>[] : _finished((d) => d.year == _year);
     final now = DateTime.now();
     // mappa di calore: 53 settimane × 7 giorni
     final start = DateTime(_year).subtract(Duration(days: (DateTime(_year).weekday + 6) % 7));
@@ -273,6 +284,20 @@ class _StatsScreenState extends State<StatsScreen> {
             Text('Serie attuale: ${store.streak} ${store.streak == 1 ? 'giorno' : 'giorni'} di fila · ${store.chaptersRead} capitoli in tutto', style: LK.body(13, color: LK.muted)),
             const SizedBox(height: 14),
             Center(child: Segmented(labels: const ['Mese', 'Anno'], selected: _mode, onChanged: (i) => setState(() => _mode = i))),
+            const SizedBox(height: 8),
+            Center(
+              child: Wrap(spacing: 6, children: [
+                for (final (i, l) in const [(0, 'Tutto'), (1, 'Novel'), (2, 'Manga')])
+                  ChoiceChip(
+                    label: Text(l, style: LK.body(13)),
+                    selected: _what == i,
+                    selectedColor: LK.accentSoft,
+                    backgroundColor: LK.card,
+                    side: BorderSide(color: LK.border),
+                    onSelected: (_) => setState(() => _what = i),
+                  ),
+              ]),
+            ),
             const SizedBox(height: 14),
             ...(_mode == 0 ? _monthView() : _yearView()),
           ],

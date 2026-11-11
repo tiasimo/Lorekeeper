@@ -12,6 +12,7 @@ RULES = """
     <include domain="root" path="app_flutter/lorekeeper/"/>
     <exclude domain="root" path="app_flutter/lorekeeper/books/"/>
     <exclude domain="root" path="app_flutter/lorekeeper/wiki/photos/"/>
+    <exclude domain="root" path="app_flutter/lorekeeper/manga_dl/"/>
     <include domain="sharedpref" path="."/>
     <exclude domain="sharedpref" path="FlutterSecureStorage.xml"/>
 """

@@ -309,7 +309,7 @@ class _AniListTabState extends State<AniListTab> {
       backgroundColor: LK.paper,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (_) => _SourceSearch(titles: e.media.titles),
+      builder: (_) => SourceSearchSheet(titles: e.media.titles),
     );
     if (picked == null || !mounted) return;
     final m = MangaStore.I.entry(picked.$1, picked.$2);
@@ -448,14 +448,16 @@ class _AniListTabState extends State<AniListTab> {
 }
 
 /// Cerca un titolo in tutte le sorgenti installate e fa scegliere il risultato.
-class _SourceSearch extends StatefulWidget {
+class SourceSearchSheet extends StatefulWidget {
   final List<String> titles;
-  const _SourceSearch({required this.titles});
+  final String title;
+  final String? excludeSourceId;
+  const SourceSearchSheet({super.key, required this.titles, this.title = 'Dove vuoi leggerlo?', this.excludeSourceId});
   @override
-  State<_SourceSearch> createState() => _SourceSearchState();
+  State<SourceSearchSheet> createState() => SourceSearchSheetState();
 }
 
-class _SourceSearchState extends State<_SourceSearch> {
+class SourceSearchSheetState extends State<SourceSearchSheet> {
   late final _q = TextEditingController(text: widget.titles.first);
   final List<(Source, DMedia)> _res = [];
   final Map<String, String> _errors = {};
@@ -469,7 +471,7 @@ class _SourceSearchState extends State<_SourceSearch> {
 
   Future<void> _go() async {
     final my = ++_run;
-    final sources = MangaStore.I.ext.installedMangaExtensions.toList();
+    final sources = MangaStore.I.ext.installedMangaExtensions.where((s) => s.id != widget.excludeSourceId).toList();
     setState(() {
       _res.clear();
       _errors.clear();
@@ -497,7 +499,7 @@ class _SourceSearchState extends State<_SourceSearch> {
         child: Column(children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-            child: Text('Dove vuoi leggerlo?', style: LK.display(18)),
+            child: Text(widget.title, style: LK.display(18)),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),

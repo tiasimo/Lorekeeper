@@ -131,6 +131,8 @@ class LibraryStore extends ChangeNotifier {
   double charsPerSecond = 0;
   Map<String, int> secondsByDay = {};
   Map<String, int> chaptersByDay = {};
+  Map<String, int> mangaSecondsByDay = {};
+  Map<String, int> mangaChaptersByDay = {};
   Map<String, int> finishedBooks = {}; // id libro → data di fine (ms)
   int chaptersRead = 0;
 
@@ -181,6 +183,10 @@ class LibraryStore extends ChangeNotifier {
     chaptersRead = _prefs.getInt('stats.chapters') ?? 0;
     final s = _prefs.getString('stats.days');
     if (s != null) secondsByDay = Map<String, int>.from(jsonDecode(s) as Map);
+    final ms = _prefs.getString('stats.mdays');
+    if (ms != null) mangaSecondsByDay = Map<String, int>.from(jsonDecode(ms) as Map);
+    final mc = _prefs.getString('stats.mchdays');
+    if (mc != null) mangaChaptersByDay = Map<String, int>.from(jsonDecode(mc) as Map);
     final cd = _prefs.getString('stats.chdays');
     if (cd != null) chaptersByDay = Map<String, int>.from(jsonDecode(cd) as Map);
     final fb = _prefs.getString('stats.finished');
@@ -448,6 +454,20 @@ class LibraryStore extends ChangeNotifier {
     final k = _dayKey(DateTime.now());
     secondsByDay[k] = (secondsByDay[k] ?? 0) + seconds;
     _prefs.setString('stats.days', jsonEncode(secondsByDay));
+  }
+
+  /// Tempo e capitoli dei manga (statistiche separate dalle novel).
+  void addMangaTime(int seconds) {
+    if (seconds <= 0) return;
+    final k = _dayKey(DateTime.now());
+    mangaSecondsByDay[k] = (mangaSecondsByDay[k] ?? 0) + seconds;
+    _prefs.setString('stats.mdays', jsonEncode(mangaSecondsByDay));
+  }
+
+  void mangaChapterFinished() {
+    final k = _dayKey(DateTime.now());
+    mangaChaptersByDay[k] = (mangaChaptersByDay[k] ?? 0) + 1;
+    _prefs.setString('stats.mchdays', jsonEncode(mangaChaptersByDay));
   }
 
   void chapterFinished() {

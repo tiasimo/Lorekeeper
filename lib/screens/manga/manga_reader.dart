@@ -9,7 +9,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../../services/home_widget_sync.dart';
 import '../../services/library_store.dart';
+import '../../services/manga_downloads.dart';
 import '../../services/manga_prefs.dart';
 import '../../services/manga_store.dart';
 import '../../theme.dart';
@@ -21,7 +23,8 @@ import 'manga_reader_sheet.dart';
 class _Item {
   final int page;
   final int half; // 0 intera, 1 sinistra, 2 destra
-  const _Item(this.page, [this.half = 0]);
+  final int? page2; // seconda pagina affiancata (in orizzontale)
+  const _Item(this.page, [this.half = 0, this.page2]);
 }
 
 class MangaReader extends StatefulWidget {
@@ -54,6 +57,8 @@ class _MangaReaderState extends State<MangaReader> {
   final _zoom = TransformationController();
   int _run = 0;
   bool _flash = false;
+  bool _double = false; // due pagine affiancate
+  Timer? _clock;
 
   int get _mode => _seriesMode == 0 ? _p.defaultMode : _seriesMode;
   int get _rotation => _seriesRot == 0 ? _p.defaultRotation : _seriesRot;
@@ -78,6 +83,10 @@ class _MangaReaderState extends State<MangaReader> {
     super.initState();
     _ch = widget.chapter;
     _scroll.addListener(_onScroll);
+    // tempo di lettura dei manga per le statistiche
+    _clock = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!_loading && _error == null) LibraryStore.I.addMangaTime(30);
+    });
     () async {
       _p = await MangaPrefs.load();
       final (sm, sr) = await MangaPrefs.series(m.key);
@@ -94,6 +103,8 @@ class _MangaReaderState extends State<MangaReader> {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     WakelockPlus.disable();
+    _clock?.cancel();
+    HomeWidgetSync.update();
     _pc?.dispose();
     _scroll.dispose();
     _zoom.dispose();
@@ -133,10 +144,10 @@ class _MangaReaderState extends State<MangaReader> {
       _keys.clear();
     });
     try {
-      final pages = await widget.source.methods.getPageList(c.toEpisode());
+      final pages = MangaDownloads.I.localPages(m, c) ?? await widget.source.methods.getPageList(c.toEpisode());
       if (my != _run || !mounted) return;
       _pages = pages;
-      _items = [for (var i = 0; i < pages.length; i++) _Item(i)];
+      _items = _buildItems();
       final start = fromEnd ? (_items.isEmpty ? 0 : _items.length - 1) : page.clamp(0, _items.isEmpty ? 0 : _items.length - 1);
       _pc?.dispose();
       _pc = PageController(initialPage: start);
@@ -173,7 +184,7 @@ class _MangaReaderState extends State<MangaReader> {
 
   /// Una pagina larga si divide in due (in ordine di lettura).
   void _onInfo(int page, PageInfo info) {
-    if (_webtoon || !_p.splitWide || !info.wide || _splitDone.contains(page)) return;
+    if (_webtoon || _double || !_p.splitWide || !info.wide || _splitDone.contains(page)) return;
     _splitDone.add(page);
     final i = _items.indexWhere((x) => x.page == page && x.half == 0);
     if (i < 0) return;
@@ -409,8 +420,26 @@ class _MangaReaderState extends State<MangaReader> {
   }
 
   /// Dopo un cambio di modalità riparto dalla stessa pagina.
+  /// Elementi sfogliabili: pagine singole o coppie affiancate (la copertina resta da sola).
+  List<_Item> _buildItems() {
+    if (!_double) return [for (var i = 0; i < _pages.length; i++) _Item(i)];
+    final out = <_Item>[];
+    if (_pages.isNotEmpty) out.add(const _Item(0));
+    for (var i = 1; i < _pages.length; i += 2) {
+      final wide = (PageInfos.peek(_pages[i].url)?.wide ?? false) || (i + 1 < _pages.length && (PageInfos.peek(_pages[i + 1].url)?.wide ?? false));
+      if (wide || i + 1 >= _pages.length) {
+        out.add(_Item(i));
+        if (i + 1 < _pages.length) out.add(_Item(i + 1));
+      } else {
+        out.add(_Item(i, 0, i + 1));
+      }
+    }
+    return out;
+  }
+
   void _reflow(int page, bool wasWebtoon) {
-    _items = [for (var i = 0; i < _pages.length; i++) _Item(i)];
+    _items = _buildItems();
+    page = _items.indexWhere((it) => it.page == page || it.page2 == page).clamp(0, 1 << 30);
     _splitDone.clear();
     _pos = page.clamp(0, _items.isEmpty ? 0 : _items.length - 1);
     _pc?.dispose();
@@ -494,6 +523,14 @@ class _MangaReaderState extends State<MangaReader> {
   }
 
   Widget _pageWidget(_Item it, {required bool webtoon}) {
+    if (it.page2 != null) {
+      final a = _pageWidget(_Item(it.page), webtoon: false), b = _pageWidget(_Item(it.page2!), webtoon: false);
+      final first = _rtl ? b : a, second = _rtl ? a : b;
+      return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Flexible(child: Align(alignment: Alignment.centerRight, child: first)),
+        Flexible(child: Align(alignment: Alignment.centerLeft, child: second)),
+      ]);
+    }
     final pg = _pages[it.page];
     return MangaPage(
       url: pg.url,
@@ -605,6 +642,18 @@ class _MangaReaderState extends State<MangaReader> {
   Widget build(BuildContext context) {
     final pad = MediaQuery.of(context).padding;
     const ink = Color(0xFFEFE4D2);
+    // in orizzontale, con le modalità per pagina, due pagine affiancate
+    final size = MediaQuery.of(context).size;
+    final wantDouble = _p.doublePage && size.width > size.height && (_mode == 1 || _mode == 2);
+    if (wantDouble != _double && !_loading && _pages.isNotEmpty) {
+      final page = _page;
+      _double = wantDouble;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _reflow(page, _webtoon);
+      });
+    } else {
+      _double = wantDouble;
+    }
     final count = _items.length;
     final vertNav = _p.verticalNavigatorIn.contains(_mode);
     final bookmarked = m.bookmarks.contains(_ch.url);

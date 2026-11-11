@@ -47,6 +47,7 @@ class MangaPrefs {
   bool alwaysTransition = true;
   bool animatePages = true;
   bool flashOnPage = false;
+  bool doublePage = true; // due pagine affiancate in orizzontale
   // filtri
   bool customBrightness = false;
   int brightness = 0; // -75 … 0
@@ -81,6 +82,7 @@ class MangaPrefs {
         'trans': alwaysTransition,
         'anim': animatePages,
         'flash': flashOnPage,
+        'dp': doublePage,
         'cb': customBrightness,
         'b': brightness,
         'cf': colorFilter,
@@ -120,6 +122,7 @@ class MangaPrefs {
     p.alwaysTransition = v('trans', true);
     p.animatePages = v('anim', true);
     p.flashOnPage = v('flash', false);
+    p.doublePage = v('dp', true);
     p.customBrightness = v('cb', false);
     p.brightness = v('b', 0);
     p.colorFilter = v('cf', false);

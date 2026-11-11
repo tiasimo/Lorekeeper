@@ -5,7 +5,10 @@ import '../../services/manga_store.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/manga_image.dart';
+import '../../services/manga_downloads.dart';
+import '../spine_editor_screen.dart';
 import 'anilist_ui.dart';
+import 'manga_categories.dart';
 import 'manga_reader.dart';
 
 /// Scheda del manga: copertina, trama, generi e capitoli.
@@ -51,6 +54,59 @@ class _MangaDetailState extends State<MangaDetail> {
     }
   }
 
+  Future<void> _menu(String v) async {
+    final dl = MangaDownloads.I;
+    final ord = m.ordered;
+    switch (v) {
+      case 'dl5':
+        final start = m.lastChapter == null ? 0 : ord.indexWhere((c) => c.url == m.lastChapter).clamp(0, ord.length);
+        dl.enqueue(m, ord.skip(start).where((c) => !m.read.contains(c.url)).take(5));
+      case 'dlUnread':
+        dl.enqueue(m, ord.where((c) => !m.read.contains(c.url)));
+      case 'dlAll':
+        dl.enqueue(m, ord);
+      case 'delRead':
+        await dl.deleteAll(m, onlyRead: true);
+      case 'delAll':
+        await dl.deleteAll(m);
+      case 'auto':
+        await dl.setAutoDelete(!dl.autoDelete);
+      case 'cat':
+        await editMangaCategories(context, m);
+      case 'spine':
+        if (!mounted) return;
+        await Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => SpineEditorScreen(
+            book: m.spineBook,
+            onSave: (b) {
+              m.applySpine(b);
+              store.save();
+            },
+          ),
+        ));
+      case 'migrate':
+        final picked = await showModalBottomSheet<(Source, DMedia)>(
+          context: context,
+          backgroundColor: LK.paper,
+          showDragHandle: true,
+          isScrollControlled: true,
+          builder: (_) => SourceSearchSheet(titles: [m.title], title: 'Sposta su un\'altra sorgente', excludeSourceId: m.sourceId),
+        );
+        if (picked == null || !mounted) return;
+        setState(() => _loading = true);
+        try {
+          final dest = await store.migrate(m, picked.$1, picked.$2);
+          if (!mounted) return;
+          Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => MangaDetail(manga: dest)));
+          return;
+        } catch (e) {
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Migrazione non riuscita: $e')));
+        }
+        if (mounted) setState(() => _loading = false);
+    }
+    if (mounted) setState(() {});
+  }
+
   void _read(MChapter c, {int page = 0}) {
     final s = _source;
     if (s == null) return;
@@ -89,7 +145,29 @@ class _MangaDetailState extends State<MangaDetail> {
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
-                  const BackLink(trail: 'Manga'),
+                  Row(children: [
+                    const Expanded(child: BackLink(trail: 'Manga')),
+                    ListenableBuilder(
+                      listenable: MangaDownloads.I,
+                      builder: (context, _) => PopupMenuButton<String>(
+                        color: LK.card,
+                        icon: Icon(Icons.more_vert, color: LK.ink),
+                        onSelected: _menu,
+                        itemBuilder: (_) => [
+                          PopupMenuItem(value: 'dl5', child: Text('Scarica i prossimi 5 capitoli', style: LK.body(14))),
+                          PopupMenuItem(value: 'dlUnread', child: Text('Scarica i non letti', style: LK.body(14))),
+                          PopupMenuItem(value: 'dlAll', child: Text('Scarica tutto', style: LK.body(14))),
+                          PopupMenuItem(value: 'delRead', child: Text('Elimina gli scaricati già letti', style: LK.body(14))),
+                          PopupMenuItem(value: 'delAll', child: Text('Elimina tutti gli scaricati (${MangaDownloads.I.downloadedCount(m)})', style: LK.body(14))),
+                          CheckedPopupMenuItem(value: 'auto', checked: MangaDownloads.I.autoDelete, child: Text('Elimina dopo la lettura', style: LK.body(14))),
+                          const PopupMenuDivider(),
+                          PopupMenuItem(value: 'cat', child: Text('Categorie…', style: LK.body(14))),
+                          PopupMenuItem(value: 'spine', child: Text('Modifica il dorso', style: LK.body(14))),
+                          PopupMenuItem(value: 'migrate', child: Text('Migra a un\'altra sorgente', style: LK.body(14))),
+                        ],
+                      ),
+                    ),
+                  ]),
                   const SizedBox(height: 6),
                   Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     bookHero(m.spineBook, Container(
@@ -187,7 +265,27 @@ class _MangaDetailState extends State<MangaDetail> {
                       style: LK.label(9, spacing: 0.3),
                     ),
                     leading: m.bookmarks.contains(c.url) ? Icon(Icons.bookmark, color: LK.gold, size: 18) : null,
-                    trailing: read ? Icon(Icons.check, color: LK.muted, size: 18) : (current ? Icon(Icons.play_arrow_rounded, color: LK.accent, size: 20) : null),
+                    trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                      if (read) Icon(Icons.check, color: LK.muted, size: 18) else if (current) Icon(Icons.play_arrow_rounded, color: LK.accent, size: 20),
+                      ListenableBuilder(
+                        listenable: MangaDownloads.I,
+                        builder: (context, _) {
+                          final dl = MangaDownloads.I;
+                          if (dl.isQueued(c)) {
+                            final v = dl.progress[c.url] ?? 0;
+                            return IconButton(
+                              tooltip: 'Annulla',
+                              onPressed: () => dl.cancel(c),
+                              icon: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(value: v > 0 ? v : null, strokeWidth: 2.2, color: LK.accent)),
+                            );
+                          }
+                          if (dl.isDownloaded(m, c)) {
+                            return IconButton(tooltip: 'Elimina download', onPressed: () => dl.delete(m, c), icon: Icon(Icons.download_done, color: LK.accent, size: 20));
+                          }
+                          return IconButton(tooltip: 'Scarica', onPressed: () => dl.enqueue(m, [c]), icon: Icon(Icons.download_for_offline_outlined, color: LK.muted, size: 20));
+                        },
+                      ),
+                    ]),
                     onTap: () => _read(c, page: current && !read ? m.lastPage : 0),
                     onLongPress: () => setState(() => store.markRead(m, c, read: !read)),
                   );

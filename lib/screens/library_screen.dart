@@ -15,6 +15,7 @@ import 'book_screen.dart';
 import 'reader_screen.dart';
 import 'settings_screen.dart';
 import 'spine_editor_screen.dart';
+import 'manga/manga_detail.dart';
 import 'manga/manga_home.dart';
 import '../services/manga_store.dart';
 import 'stats_screen.dart';
@@ -51,8 +52,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   StreamSubscription<Uri?>? _widgetSub;
 
-  void _fromWidget(Uri? uri) {
+  Future<void> _fromWidget(Uri? uri) async {
     if (uri == null || !mounted) return;
+    await MangaStore.I.load();
+    if (HomeWidgetSync.mangaIsLatest() && mounted) {
+      final m = HomeWidgetSync.lastManga()!;
+      Navigator.of(context).push(bookRoute(MangaDetail(manga: m)));
+      return;
+    }
+    if (!mounted) return;
     final b = HomeWidgetSync.lastRead();
     if (b != null) Navigator.of(context).push(MaterialPageRoute(builder: (_) => ReaderScreen(book: b)));
   }

@@ -11,7 +11,9 @@ import '../../widgets/shelf_backdrop.dart';
 import '../../services/library_store.dart';
 import '../spine_editor_screen.dart';
 import 'anilist_ui.dart';
+import 'manga_categories.dart';
 import 'manga_detail.dart';
+import 'manga_reader.dart';
 
 /// Sezione Manga: la tua libreria, l'esplorazione delle sorgenti e le estensioni.
 class MangaHome extends StatefulWidget {
@@ -43,6 +45,22 @@ class _MangaHomeState extends State<MangaHome> {
     });
   }
 
+  static const _tabs = ['Libreria', 'Novità', 'Cronologia', 'Esplora', 'AniList', 'Estensioni'];
+
+  /// Apre un capitolo dalla cronologia o dalle novità.
+  Future<void> _openChapter(MangaEvent e, {bool resume = false}) async {
+    final m = store.byKey(e.mangaKey);
+    if (m == null) return;
+    await store.ensureBridge();
+    final s = store.sourceFor(m);
+    final c = m.chapters.where((c) => c.url == e.chapterUrl).firstOrNull;
+    if (s == null || c == null || !mounted) {
+      if (mounted) Navigator.of(context).push(bookRoute(MangaDetail(manga: m)));
+      return;
+    }
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => MangaReader(manga: m, source: s, chapter: c, startPage: resume && m.lastChapter == c.url ? m.lastPage : 0)));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -72,24 +90,48 @@ class _MangaHomeState extends State<MangaHome> {
                         ),
                 ),
               ]),
-              const SizedBox(height: 12),
-              Center(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Segmented(labels: const ['Libreria', 'Esplora', 'AniList', 'Estensioni'], selected: _tab, onChanged: (i) => setState(() => _tab = i)),
-                ),
-              ),
               const SizedBox(height: 10),
+            ]),
+          ),
+          // schede scorrevoli
+          SizedBox(
+            height: 44,
+            child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 20), children: [
+              for (var i = 0; i < _tabs.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: GestureDetector(
+                    onTap: () => setState(() => _tab = i),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: i == _tab ? LK.accent : LK.card,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: i == _tab ? LK.accent : LK.border),
+                      ),
+                      child: Text(_tabs[i].toUpperCase(), style: LK.label(10.5, color: i == _tab ? LK.onAccent : LK.muted, spacing: 1.1)),
+                    ),
+                  ),
+                ),
+            ]),
+          ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 0, 20, 0),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              SizedBox(height: 10),
             ]),
           ),
           Expanded(
             child: _error != null
                 ? _message('Non riesco ad avviare le estensioni:\n$_error')
-                : _starting && _tab != 0
+                : _starting && _tab >= 3
                     ? Center(child: CircularProgressIndicator(color: LK.accent))
                     : IndexedStack(index: _tab, children: [
-                        _LibraryTab(onExplore: () => setState(() => _tab = 1)),
-                        if (_starting) const SizedBox.shrink() else _ExploreTab(onExtensions: () => setState(() => _tab = 3)),
+                        _LibraryTab(onExplore: () => setState(() => _tab = 3)),
+                        _UpdatesTab(onOpen: _openChapter),
+                        _HistoryTab(onOpen: _openChapter),
+                        if (_starting) const SizedBox.shrink() else _ExploreTab(onExtensions: () => setState(() => _tab = 5)),
                         if (_starting) const SizedBox.shrink() else const AniListTab(),
                         if (_starting) const SizedBox.shrink() else const _ExtensionsTab(),
                       ]),
@@ -166,6 +208,8 @@ SliverGridDelegate _grid(BuildContext context) => SliverGridDelegateWithMaxCross
 const _shelfNames = ['In corso', 'Da leggere', 'Completati'];
 const _shelfWoods = [Wood('Noce', Color(0xFF6E4B33), Color(0xFF4E3322), Color(0xFF3E2718)), Wood('Quercia', Color(0xFFA9825A), Color(0xFF86633F), Color(0xFF6E4F30)), Wood('Mogano', Color(0xFF7E3B26), Color(0xFF5A2516), Color(0xFF461A0E))];
 
+final _catFilter = ValueNotifier<String?>(null);
+
 class _LibraryTab extends StatelessWidget {
   final VoidCallback onExplore;
   const _LibraryTab({required this.onExplore});
@@ -196,6 +240,14 @@ class _LibraryTab extends StatelessWidget {
                   },
                 ),
               ));
+            },
+          ),
+          ListTile(
+            leading: Icon(Icons.label_outline, color: LK.accent),
+            title: Text('Categorie…', style: LK.body(15)),
+            onTap: () {
+              Navigator.pop(ctx);
+              editMangaCategories(context, m);
             },
           ),
           ListTile(
@@ -315,7 +367,7 @@ class _LibraryTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: MangaStore.I,
+      listenable: Listenable.merge([MangaStore.I, _catFilter]),
       builder: (context, _) {
         final store = MangaStore.I;
         final list = store.library;
@@ -338,8 +390,9 @@ class _LibraryTab extends StatelessWidget {
             ),
           );
         }
+        final cat = _catFilter.value;
         final groups = [<SavedManga>[], <SavedManga>[], <SavedManga>[]];
-        for (final m in list) {
+        for (final m in list.where((m) => cat == null || m.categories.contains(cat))) {
           groups[m.shelf].add(m);
         }
         // in corso e completati: prima l'ultimo letto; da leggere: prima l'ultimo aggiunto
@@ -361,8 +414,27 @@ class _LibraryTab extends StatelessWidget {
                     LinearProgressIndicator(value: store.refreshTotal == 0 ? null : store.refreshDone / store.refreshTotal, color: LK.accent, backgroundColor: LK.line),
                   ]),
                 ),
+              if (store.categoryNames.isNotEmpty)
+                SizedBox(
+                  height: 42,
+                  child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 20), children: [
+                    for (final c in [null, ...store.categoryNames])
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: ChoiceChip(
+                          label: Text(c ?? 'Tutti', style: LK.body(13)),
+                          selected: cat == c,
+                          selectedColor: LK.accentSoft,
+                          backgroundColor: LK.card,
+                          side: BorderSide(color: LK.border),
+                          onSelected: (_) => _catFilter.value = c,
+                        ),
+                      ),
+                  ]),
+                ),
               for (var k = 0; k < 3; k++)
                 if (groups[k].isNotEmpty) _shelf(context, k, groups[k]),
+              if (groups.every((g) => g.isEmpty)) _message('Nessun manga in questa categoria.'),
             ],
           ),
         );
@@ -390,6 +462,68 @@ class _ExploreTabState extends State<_ExploreTab> {
   bool _hasNext = false, _loading = false;
   String? _error;
   int _run = 0;
+  // ricerca in tutte le sorgenti
+  bool _global = false;
+  final List<(Source, List<DMedia>)> _globalRes = [];
+  int _globalPending = 0;
+
+  Future<void> _globalSearch() async {
+    final q = _q.text.trim();
+    if (q.isEmpty) return;
+    final my = ++_run;
+    final sources = MangaStore.I.ext.installedMangaExtensions.toList();
+    setState(() {
+      _globalRes.clear();
+      _globalPending = sources.length;
+    });
+    for (final s in sources) {
+      s.methods.search(q, 1, []).then((r) {
+        if (my != _run || !mounted || r.list.isEmpty) return;
+        setState(() => _globalRes.add((s, r.list)));
+      }).catchError((_) {}).whenComplete(() {
+        if (my == _run && mounted) setState(() => _globalPending--);
+      });
+    }
+  }
+
+  Widget _globalView() {
+    if (_q.text.trim().isEmpty) return _message('Scrivi un titolo: lo cerco in tutte le sorgenti installate.');
+    return ListView(padding: const EdgeInsets.only(bottom: 40), children: [
+      if (_globalPending > 0) LinearProgressIndicator(color: LK.accent, backgroundColor: LK.line),
+      if (_globalPending == 0 && _globalRes.isEmpty) _message('Nessuna sorgente l\'ha trovato.'),
+      for (final (s, list) in _globalRes) ...[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
+          child: Text('${s.name} · ${(s.lang ?? '').toUpperCase()}', style: LK.label(10, color: LK.accent, spacing: 1)),
+        ),
+        SizedBox(
+          height: 210,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            itemCount: list.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 12),
+            itemBuilder: (context, i) {
+              final d = list[i];
+              return SizedBox(
+                width: 110,
+                child: _MangaTile(
+                  title: d.title ?? '',
+                  cover: d.cover,
+                  sourceId: s.id,
+                  managerId: s.managerId ?? s.extensionType,
+                  onTap: () {
+                    final m = MangaStore.I.entry(s, d);
+                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => MangaDetail(manga: m)));
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    ]);
+  }
 
   Future<void> _load({bool more = false}) async {
     final s = _source;
@@ -458,18 +592,36 @@ class _ExploreTabState extends State<_ExploreTab> {
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 20),
             children: [
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  avatar: Icon(Icons.travel_explore, size: 18, color: LK.accent),
+                  label: Text('Tutte le sorgenti', style: LK.body(13)),
+                  selected: _global,
+                  selectedColor: LK.accentSoft,
+                  backgroundColor: LK.card,
+                  side: BorderSide(color: LK.border),
+                  onSelected: (_) {
+                    setState(() => _global = true);
+                    _globalSearch();
+                  },
+                ),
+              ),
               for (final s in sources)
                 Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: ChoiceChip(
                     avatar: (s.iconUrl ?? '').isEmpty ? null : CircleAvatar(backgroundImage: NetworkImage(s.iconUrl!), backgroundColor: Colors.transparent),
                     label: Text('${s.name} · ${(s.lang ?? '').toUpperCase()}', style: LK.body(13)),
-                    selected: s.id == _source?.id,
+                    selected: !_global && s.id == _source?.id,
                     selectedColor: LK.accentSoft,
                     backgroundColor: LK.card,
                     side: BorderSide(color: LK.border),
                     onSelected: (_) {
-                      setState(() => _source = s);
+                      setState(() {
+                        _source = s;
+                        _global = false;
+                      });
                       _load();
                     },
                   ),
@@ -483,11 +635,16 @@ class _ExploreTabState extends State<_ExploreTab> {
             controller: _q,
             textInputAction: TextInputAction.search,
             onSubmitted: (v) {
+              if (_global) {
+                setState(() {});
+                _globalSearch();
+                return;
+              }
               setState(() => _mode = v.trim().isEmpty ? 0 : 2);
               _load();
             },
             decoration: InputDecoration(
-              hintText: 'Cerca in ${_source?.name ?? ''}…',
+              hintText: _global ? 'Cerca in tutte le sorgenti…' : 'Cerca in ${_source?.name ?? ''}…',
               isDense: true,
               prefixIcon: Icon(Icons.search, color: LK.muted),
               suffixIcon: _mode == 2
@@ -507,7 +664,7 @@ class _ExploreTabState extends State<_ExploreTab> {
             ),
           ),
         ),
-        if (_mode != 2)
+        if (_mode != 2 && !_global)
           Padding(
             padding: const EdgeInsets.only(bottom: 6),
             child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -529,7 +686,9 @@ class _ExploreTabState extends State<_ExploreTab> {
             ]),
           ),
         Expanded(
-          child: _error != null && _items.isEmpty
+          child: _global
+              ? _globalView()
+              : _error != null && _items.isEmpty
               ? _message('La sorgente non risponde:\n$_error')
               : _items.isEmpty && _loading
                   ? Center(child: CircularProgressIndicator(color: LK.accent))
@@ -820,5 +979,170 @@ class _ExtensionsTabState extends State<_ExtensionsTab> {
         ),
       );
     });
+  }
+}
+
+// ======================================================================
+// Novità e cronologia
+// ======================================================================
+String _dayLabel(DateTime d) {
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final day = DateTime(d.year, d.month, d.day);
+  final diff = today.difference(day).inDays;
+  if (diff == 0) return 'Oggi';
+  if (diff == 1) return 'Ieri';
+  if (diff < 7) return '$diff giorni fa';
+  const mesi = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+  return '${d.day} ${mesi[d.month - 1]} ${d.year}';
+}
+
+String _two(int n) => n.toString().padLeft(2, '0');
+
+class _EventRow extends StatelessWidget {
+  final MangaEvent e;
+  final String sub;
+  final bool dim;
+  final VoidCallback onTap;
+  final Widget? trailing;
+  const _EventRow({required this.e, required this.sub, required this.onTap, this.dim = false, this.trailing});
+
+  @override
+  Widget build(BuildContext context) {
+    final m = MangaStore.I.byKey(e.mangaKey);
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+        child: Row(children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: SizedBox(
+              width: 42,
+              height: 60,
+              child: m == null || (m.cover ?? '').isEmpty ? Container(color: LK.line) : MangaImage(m.cover!, sourceId: m.sourceId, managerId: m.managerId),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(m?.title ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.display(14.5, color: dim ? LK.muted : LK.ink)),
+              Text(e.chapterName, maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.body(13.5, color: dim ? LK.muted : LK.ink)),
+              Text(sub, style: LK.label(9, spacing: 0.4)),
+            ]),
+          ),
+          if (trailing != null) trailing!,
+        ]),
+      ),
+    );
+  }
+}
+
+class _UpdatesTab extends StatelessWidget {
+  final Future<void> Function(MangaEvent, {bool resume}) onOpen;
+  const _UpdatesTab({required this.onOpen});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: MangaStore.I,
+      builder: (context, _) {
+        final store = MangaStore.I;
+        final list = store.updates.where((e) => store.byKey(e.mangaKey)?.inLibrary ?? false).toList();
+        if (list.isEmpty) {
+          return RefreshIndicator(
+            color: LK.accent,
+            onRefresh: () => store.refreshLibrary(),
+            child: ListView(children: [
+              const SizedBox(height: 60),
+              _message('Ancora nessun capitolo nuovo.\nTira giù o premi le due frecce per controllare.'),
+            ]),
+          );
+        }
+        final rows = <Widget>[];
+        String? lastDay;
+        for (final e in list) {
+          final day = _dayLabel(e.at);
+          if (day != lastDay) {
+            rows.add(Padding(padding: const EdgeInsets.fromLTRB(20, 14, 20, 4), child: Text(day.toUpperCase(), style: LK.label(10, color: LK.accent, spacing: 1.2))));
+            lastDay = day;
+          }
+          final m = store.byKey(e.mangaKey);
+          final read = m?.read.contains(e.chapterUrl) ?? false;
+          rows.add(_EventRow(
+            e: e,
+            dim: read,
+            sub: read ? 'LETTO' : 'NUOVO',
+            onTap: () => onOpen(e),
+            trailing: read ? Icon(Icons.check, color: LK.muted, size: 18) : Icon(Icons.fiber_new_outlined, color: LK.accent),
+          ));
+        }
+        return RefreshIndicator(
+          color: LK.accent,
+          onRefresh: () => store.refreshLibrary(),
+          child: ListView(padding: const EdgeInsets.only(bottom: 40), children: rows),
+        );
+      },
+    );
+  }
+}
+
+class _HistoryTab extends StatelessWidget {
+  final Future<void> Function(MangaEvent, {bool resume}) onOpen;
+  const _HistoryTab({required this.onOpen});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: MangaStore.I,
+      builder: (context, _) {
+        final store = MangaStore.I;
+        final list = store.history.where((e) => store.byKey(e.mangaKey) != null).toList();
+        if (list.isEmpty) return _message('Qui compariranno i capitoli che leggi.');
+        final rows = <Widget>[
+          Align(
+            alignment: Alignment.centerRight,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: TextButton.icon(
+                onPressed: () async {
+                  final ok = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      backgroundColor: LK.paper,
+                      title: Text('Cancellare la cronologia?', style: LK.display(19)),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annulla')),
+                        FilledButton(style: FilledButton.styleFrom(backgroundColor: LK.accent), onPressed: () => Navigator.pop(ctx, true), child: const Text('Cancella')),
+                      ],
+                    ),
+                  );
+                  if (ok == true) store.clearHistory();
+                },
+                icon: Icon(Icons.delete_sweep_outlined, color: LK.muted, size: 18),
+                label: Text('Cancella tutto', style: LK.body(13, color: LK.muted)),
+              ),
+            ),
+          ),
+        ];
+        String? lastDay;
+        for (final e in list) {
+          final day = _dayLabel(e.at);
+          if (day != lastDay) {
+            rows.add(Padding(padding: const EdgeInsets.fromLTRB(20, 10, 20, 4), child: Text(day.toUpperCase(), style: LK.label(10, color: LK.accent, spacing: 1.2))));
+            lastDay = day;
+          }
+          final m = store.byKey(e.mangaKey)!;
+          final current = m.lastChapter == e.chapterUrl && !m.read.contains(e.chapterUrl);
+          rows.add(_EventRow(
+            e: e,
+            sub: '${_two(e.at.hour)}:${_two(e.at.minute)}${current ? ' · pagina ${m.lastPage + 1}' : ''}',
+            onTap: () => onOpen(e, resume: true),
+            trailing: IconButton(icon: Icon(Icons.close, color: LK.muted, size: 18), onPressed: () => store.removeHistory(e)),
+          ));
+        }
+        return ListView(padding: const EdgeInsets.only(bottom: 40), children: rows);
+      },
+    );
   }
 }

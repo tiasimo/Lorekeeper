@@ -188,6 +188,7 @@ class _SheetState extends State<_Sheet> {
         _check('Mostra sempre la transizione tra capitoli', p.alwaysTransition, (v) => _set(() => p.alwaysTransition = v)),
         _check('Anima le transizioni di pagina', p.animatePages, (v) => _set(() => p.animatePages = v)),
         _check('Lampeggia al cambio pagina', p.flashOnPage, (v) => _set(() => p.flashOnPage = v)),
+        _check('Due pagine affiancate in orizzontale', p.doublePage, (v) => _set(() => p.doublePage = v)),
       ]);
 
   // ---------------- Filtro personalizzato ----------------
