@@ -21,7 +21,7 @@ class ReaderPrefs {
   String mode = 'Pagine'; // Pagine | Scorrimento
   String margins = 'Normali'; // Stretti | Normali | Larghi
   bool justify = true;
-  bool hyphenate = true;
+  bool hyphenate = false; // Android non disegna il trattino: di base spenta
   String animation = 'Arricciatura'; // Arricciatura | Scorrimento | Nessuna
   bool tapEdges = true;
   bool invertTaps = false;
@@ -157,6 +157,10 @@ class LibraryStore extends ChangeNotifier {
     reader.mode = _prefs.getString('r.mode') ?? reader.mode;
     final rj = _prefs.getString('reader.prefs');
     if (rj != null) reader.fromJson(Map<String, dynamic>.from(jsonDecode(rj) as Map));
+    if (!(_prefs.getBool('fix.hyphen') ?? false)) {
+      reader.hyphenate = false;
+      _prefs.setBool('fix.hyphen', true);
+    }
     final aj = _prefs.getString('app.prefs');
     if (aj != null) app.fromJson(Map<String, dynamic>.from(jsonDecode(aj) as Map));
     charsPerSecond = _prefs.getDouble('speed.cps') ?? 0;

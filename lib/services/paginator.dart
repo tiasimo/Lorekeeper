@@ -39,10 +39,14 @@ class PageStyle {
   final ReaderTheme theme;
   final TextScaler scaler;
   final TextAlign align;
-  const PageStyle(this.base, this.theme, this.scaler, {this.align = TextAlign.justify});
+  PageStyle(TextStyle base, this.theme, this.scaler, {this.align = TextAlign.justify}) : base = _fix(base);
+
+  /// Il tema dell'app aggiunge spaziatura tra le lettere: qui la azzero perché
+  /// misura e disegno devono essere identici.
+  static TextStyle _fix(TextStyle s) => s.copyWith(letterSpacing: s.letterSpacing ?? 0, wordSpacing: s.wordSpacing ?? 0);
 
   double get gap => (base.fontSize ?? 18) * 0.75;
-  TextStyle heading(int level) => LK.display(level <= 2 ? 21 : 18, color: theme.ink);
+  TextStyle heading(int level) => _fix(LK.display(level <= 2 ? 21 : 18, color: theme.ink));
   TextStyle get title => LK.display(24, color: theme.ink).copyWith(
         height: 1.25,
         letterSpacing: 0.6,
@@ -51,7 +55,7 @@ class PageStyle {
   static const capLines = 3;
   double get lineHeight => (base.fontSize ?? 18) * (base.height ?? 1.4);
   double get capBox => lineHeight * capLines * 0.94; // prima della scala del testo di sistema
-  TextStyle get cap => LK.display(capBox * 1.3, color: theme.accent).copyWith(height: 1 / 1.3);
+  TextStyle get cap => _fix(LK.display(capBox * 1.3, color: theme.accent).copyWith(height: 1 / 1.3));
   static const ornamentHeight = 52.0;
   static final _ornament = RegExp(r'^[\s\*•·◆◇◊~#=_+\-–—⁂❖✦✧○●□■◦°※†‡§]+$');
   static bool isOrnament(String s) => s.trim().isNotEmpty && s.trim().length <= 24 && _ornament.hasMatch(s);
@@ -66,6 +70,34 @@ class PageStyle {
             style: TextStyle(fontStyle: s.italic ? FontStyle.italic : null, fontWeight: s.bold ? FontWeight.w700 : null),
           ),
       ]);
+}
+
+String _norm(String s) => s.toLowerCase().replaceAll('\u00AD', '').replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), ' ').trim();
+
+/// Toglie dall'inizio del capitolo le intestazioni che ripetono il titolo
+/// (es. "1" e "La luce in fondo al tunnel" sotto "1. La luce in fondo al tunnel").
+List<Para> skipTitleRepeats(List<Para> paras, String title) {
+  final t = _norm(title);
+  final words = t.split(' ').toSet();
+  var i = 0;
+  while (i < paras.length && i < 4) {
+    final p = paras[i];
+    if (p.image != null) {
+      i++;
+      continue;
+    }
+    final n = _norm(p.plain);
+    final short = p.plain.length <= 80;
+    final repeat = n.isNotEmpty && short && (t.contains(n) || n.contains(t) || n.split(' ').every(words.contains));
+    if ((p.level > 0 || short) && repeat) {
+      i++;
+      continue;
+    }
+    break;
+  }
+  if (i == 0) return paras;
+  // le immagini in testa restano
+  return [...paras.sublist(0, i).where((p) => p.image != null), ...paras.sublist(i)];
 }
 
 class Paginator {
@@ -103,7 +135,7 @@ class Paginator {
     tp.dispose();
     pages.last.blocks.add(PageBlock(chapterTitle: title));
 
-    for (final p in paras) {
+    for (final p in skipTitleRepeats(paras, title)) {
       // Illustrazione
       if (p.image != null) {
         final size = imageSizes[p.image!] ?? const Size(3, 4);

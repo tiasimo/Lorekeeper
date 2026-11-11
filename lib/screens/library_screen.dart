@@ -45,7 +45,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  void _openBook(Book b) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => BookScreen(book: b)));
+  void _openBook(Book b) => Navigator.of(context).push(bookRoute(BookScreen(book: b)));
 
   void _continue() {
     final b = store.lastRead ?? (store.books.isEmpty ? null : store.books.first);

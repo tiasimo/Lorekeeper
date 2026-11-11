@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -158,29 +159,53 @@ class Segmented extends StatelessWidget {
       );
 }
 
-/// Il libro "esce dallo scaffale": il dorso ruota e diventa la copertina.
+/// Il libro "esce dallo scaffale": il dorso si sfila, ruota sul bordo e diventa la copertina.
+/// Chiudendo la scheda fa il gesto al contrario e torna al suo posto.
 Widget bookHero(Book b, Widget cover) => Hero(
       tag: 'book-${b.id}',
       flightShuttleBuilder: (ctx, anim, dir, fromCtx, toCtx) {
-        final coverHero = (dir == HeroFlightDirection.push ? toCtx.widget : fromCtx.widget) as Hero;
+        final push = dir == HeroFlightDirection.push;
+        final coverHero = (push ? toCtx.widget : fromCtx.widget) as Hero;
+        final spineHero = (push ? fromCtx.widget : toCtx.widget) as Hero;
         return AnimatedBuilder(
           animation: anim,
           builder: (context, _) {
-            final t = Curves.easeOutCubic.transform(anim.value);
-            return Transform(
-              alignment: Alignment.centerLeft,
-              transform: Matrix4.identity()
-                ..setEntry(3, 2, 0.0015)
-                ..rotateY((1 - t) * 1.35),
-              child: DecoratedBox(
-                decoration: BoxDecoration(boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.3 * (1 - t) + 0.1), blurRadius: 20)]),
-                child: coverHero.child,
+            final v = anim.value; // 0 = sullo scaffale, 1 = copertina aperta
+            // prima si sfila (leggero sollevamento), poi ruota mostrando la copertina
+            final turn = Curves.easeInOutCubic.transform(((v - 0.15) / 0.85).clamp(0.0, 1.0));
+            final lift = math.sin(v * math.pi) * 18;
+            final showCover = turn > 0.45;
+            final angle = showCover ? (1 - turn) * (math.pi / 2) : -turn * (math.pi / 2);
+            return Transform.translate(
+              offset: Offset(0, -lift),
+              child: Transform(
+                alignment: Alignment.centerLeft,
+                transform: Matrix4.identity()
+                  ..setEntry(3, 2, 0.0016)
+                  ..rotateY(angle),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.18 + 0.2 * math.sin(v * math.pi)), blurRadius: 22, offset: const Offset(6, 10))],
+                  ),
+                  child: showCover ? coverHero.child : FittedBox(fit: BoxFit.fill, child: spineHero.child),
+                ),
               ),
             );
           },
         );
       },
       child: cover,
+    );
+
+/// Apertura del libro con animazione lenta, per vedere il gesto.
+Route<T> bookRoute<T>(Widget page) => PageRouteBuilder<T>(
+      transitionDuration: const Duration(milliseconds: 1100),
+      reverseTransitionDuration: const Duration(milliseconds: 950),
+      pageBuilder: (_, __, ___) => page,
+      transitionsBuilder: (_, a, __, child) => FadeTransition(
+        opacity: CurvedAnimation(parent: a, curve: const Interval(0.35, 1, curve: Curves.easeOut)),
+        child: child,
+      ),
     );
 
 /// SafeArea che su tablet centra il contenuto con una larghezza comoda da leggere.

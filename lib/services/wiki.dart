@@ -32,6 +32,7 @@ class WikiEntry {
   final Set<String> aliases;
   final List<WikiNote> notes; // informazioni emerse capitolo per capitolo
   final List<WikiNote> roles; // ruolo/descrizione breve nel tempo
+  final List<WikiNote> descriptions; // scheda completa, riscritta a ogni capitolo (versioni)
   String? photo; // percorso locale
   String myNotes;
   bool manual; // creata a mano
@@ -44,13 +45,15 @@ class WikiEntry {
     Set<String>? aliases,
     List<WikiNote>? notes,
     List<WikiNote>? roles,
+    List<WikiNote>? descriptions,
     this.photo,
     this.myNotes = '',
     this.manual = false,
     this.manualText,
   })  : aliases = aliases ?? {},
         notes = notes ?? [],
-        roles = roles ?? [];
+        roles = roles ?? [],
+        descriptions = descriptions ?? [];
 
   int get firstPos => manual ? -1 : (notes.isEmpty ? (roles.isEmpty ? 1 << 40 : roles.first.pos) : notes.map((n) => n.pos).reduce((a, b) => a < b ? a : b));
 
@@ -59,6 +62,12 @@ class WikiEntry {
   String roleAt(int limit) {
     final r = roles.where((n) => n.pos <= limit).toList()..sort((a, b) => a.pos.compareTo(b.pos));
     return r.isEmpty ? '' : r.last.text;
+  }
+
+  /// Scheda completa fino al limite anti-spoiler.
+  String descriptionAt(int limit) {
+    final d = descriptions.where((n) => n.pos <= limit).toList()..sort((a, b) => a.pos.compareTo(b.pos));
+    return d.isEmpty ? '' : d.last.text;
   }
 
   WikiNote? get first {
@@ -73,6 +82,7 @@ class WikiEntry {
         'aliases': aliases.toList(),
         'notes': notes.map((n) => n.toJson()).toList(),
         'roles': roles.map((n) => n.toJson()).toList(),
+        'descriptions': descriptions.map((n) => n.toJson()).toList(),
         'photo': photo,
         'myNotes': myNotes,
         'manual': manual,
@@ -86,6 +96,7 @@ class WikiEntry {
         aliases: ((j['aliases'] as List?) ?? []).cast<String>().toSet(),
         notes: ((j['notes'] as List?) ?? []).map((n) => WikiNote.fromJson(n as Map)).toList(),
         roles: ((j['roles'] as List?) ?? []).map((n) => WikiNote.fromJson(n as Map)).toList(),
+        descriptions: ((j['descriptions'] as List?) ?? []).map((n) => WikiNote.fromJson(n as Map)).toList(),
         photo: j['photo'] as String?,
         myNotes: (j['myNotes'] as String?) ?? '',
         manual: (j['manual'] as bool?) ?? false,
@@ -116,18 +127,85 @@ class Wiki {
     return t.isEmpty ? 'x' : t;
   }
 
-  WikiEntry? find(String name) {
+  static Set<String> _tokens(String s) =>
+      s.toLowerCase().split(RegExp(r'[^\p{L}\p{N}]+', unicode: true)).where((t) => t.length >= 2).toSet();
+
+  /// Cerca una voce già presente: stesso nome o alias, oppure nome contenuto
+  /// nell'altro ("Arthur" ↔ "Arthur Leywin") quando il candidato è uno solo.
+  WikiEntry? find(String name, {String? type}) {
     final n = name.trim().toLowerCase();
     if (n.isEmpty) return null;
     for (final e in entries.values) {
       if (e.name.toLowerCase() == n || e.aliases.any((a) => a.toLowerCase() == n)) return e;
     }
-    // "Subaru" ↔ "Natsuki Subaru"
+    final tn = _tokens(n);
+    if (tn.isEmpty) return null;
+    final cands = <WikiEntry>[];
     for (final e in entries.values) {
-      final parts = e.name.toLowerCase().split(' ');
-      if (n.length >= 4 && parts.contains(n) && e.type == 'personaggio') return e;
+      if (type != null && e.type != type) continue;
+      for (final other in [e.name, ...e.aliases]) {
+        final te = _tokens(other);
+        if (te.isEmpty) continue;
+        if (te.containsAll(tn) || tn.containsAll(te)) {
+          cands.add(e);
+          break;
+        }
+      }
     }
-    return null;
+    return cands.length == 1 ? cands.first : null;
+  }
+
+  /// Unisce [from] dentro [into]: note, ruoli, schede, alias e relazioni.
+  void mergeInto(WikiEntry from, WikiEntry into) {
+    if (from.id == into.id) return;
+    if (_tokens(from.name).length > _tokens(into.name).length) {
+      into.aliases.add(into.name);
+      into.name = from.name;
+    } else {
+      into.aliases.add(from.name);
+    }
+    into.aliases.addAll(from.aliases);
+    into.aliases.removeWhere((a) => a.toLowerCase() == into.name.toLowerCase());
+    into.notes.addAll(from.notes);
+    into.roles.addAll(from.roles);
+    if (into.descriptions.isEmpty) into.descriptions.addAll(from.descriptions);
+    into.photo ??= from.photo;
+    if (from.myNotes.isNotEmpty) into.myNotes = [into.myNotes, from.myNotes].where((x) => x.isNotEmpty).join('\n');
+    entries.remove(from.id);
+    for (var i = 0; i < relations.length; i++) {
+      final r = relations[i];
+      if (r.a == from.id || r.b == from.id) {
+        relations[i] = WikiRelation(r.a == from.id ? into.id : r.a, r.b == from.id ? into.id : r.b, r.label, r.pos);
+      }
+    }
+    relations.removeWhere((r) => r.a == r.b);
+  }
+
+  /// Unisce automaticamente i doppioni evidenti dello stesso tipo.
+  bool mergeDuplicates() {
+    var changed = false;
+    var again = true;
+    while (again) {
+      again = false;
+      final list = entries.values.where((e) => !e.manual).toList();
+      outer:
+      for (final a in list) {
+        final ta = _tokens(a.name);
+        if (ta.isEmpty) continue;
+        final cands = list.where((b) {
+          if (b.id == a.id || b.type != a.type) return false;
+          final tb = _tokens(b.name);
+          return tb.length > ta.length && tb.containsAll(ta);
+        }).toList();
+        if (cands.length == 1) {
+          mergeInto(a, cands.first);
+          changed = true;
+          again = true;
+          break outer;
+        }
+      }
+    }
+    return changed;
   }
 
   List<WikiRelation> relationsAt(int limit) => relations.where((r) => r.pos <= limit).toList();
@@ -193,6 +271,7 @@ class WikiStore extends ChangeNotifier {
       w = Wiki(key, b.series ?? b.title);
     }
     _cache[key] = w;
+    if (w.mergeDuplicates()) await save(w);
     return w;
   }
 
@@ -273,6 +352,7 @@ class WikiStore extends ChangeNotifier {
           await _extract(w, b, i, text);
         }
         done++;
+        _reattach(w);
         status[key] = WikiStatus(running: true, done: done, total: todo.length);
         await save(w);
       }
@@ -297,33 +377,43 @@ class WikiStore extends ChangeNotifier {
 
   bool isRunning(Book b) => _running.contains(keyFor(b));
 
-  Future<void> _extract(Wiki w, Book b, int chapter, String text) async {
-    // rispetto il limite di richieste del piano gratuito
+  Future<void> _throttle() async {
     final wait = const Duration(milliseconds: 4500) - DateTime.now().difference(_lastCall);
     if (wait > Duration.zero) await Future.delayed(wait);
     _lastCall = DateTime.now();
+  }
 
+  Future<void> _extract(Wiki w, Book b, int chapter, String text) async {
+    await _throttle();
     final clipped = text.length > 60000 ? text.substring(0, 60000) : text;
-    final known = w.entries.values.where((e) => !e.manual).map((e) => e.name).take(150).join(', ');
+    final known = w.entries.values
+        .where((e) => !e.manual)
+        .take(250)
+        .map((e) => '${e.id} | ${e.name}${e.aliases.isEmpty ? '' : ' (${e.aliases.take(4).join(', ')})'} | ${e.type}')
+        .join('\n');
     final prompt = '''
 Sei l'archivista della wiki di un lettore. Leggi il capitolo qui sotto (dal libro «${b.title}», capitolo «${b.chapters[chapter].title}») e rispondi SOLO con JSON in questo formato:
-{"summary": "...", "entries": [{"name": "...", "aliases": ["..."], "type": "personaggio|luogo|termine", "role": "...", "note": "..."}], "relations": [{"a": "...", "b": "...", "label": "..."}]}
+{"summary": "...", "entries": [{"id": "...", "name": "...", "aliases": ["..."], "type": "personaggio|luogo|termine", "role": "...", "note": "..."}], "relations": [{"a": "...", "b": "...", "label": "..."}]}
+
+VOCI GIÀ NELLA WIKI (id | nome (altri nomi) | tipo):
+${known.isEmpty ? '(nessuna)' : known}
 
 Regole:
+- PRIMA di creare una voce controlla sempre l'elenco qui sopra: se il personaggio, il luogo o il termine è già presente, anche con un nome diverso, più corto o più lungo (es. "Arthur" e "Arthur Leywin"), usa il suo "id" e NON crearne uno nuovo. Per le voci nuove scrivi "id": "nuovo".
 - Usa solo informazioni presenti in QUESTO capitolo. Non anticipare mai eventi futuri e non usare conoscenze esterne sull'opera.
 - "entries": personaggi con un ruolo nella storia, luoghi e termini importanti (magie, organizzazioni, oggetti, razze). Niente comparse senza nome.
-- "name": il nome più completo usato nel testo; "aliases": soprannomi o forme brevi usate nel testo.
-- "role": massimo 6 parole (es. "protagonista, ragazzo trasportato in un altro mondo").
-- "note": 1-2 frasi in italiano con ciò che si scopre in questo capitolo.
-- Entità già nella wiki: $known. Per queste includile solo se si scopre qualcosa di nuovo, scrivendo solo la novità.
-- "relations": legami tra personaggi emersi in questo capitolo (label breve, es. "sorella di", "alleato di", "maestro di").
+- "name": il nome più completo usato nel testo; "aliases": soprannomi, nomi brevi o titoli usati nel testo.
+- "role": massimo 6 parole (es. "protagonista, ex re reincarnato").
+- "note": tutto ciò che si scopre di nuovo su quella voce in questo capitolo, in italiano, in modo dettagliato (fino a 5 frasi).
+- "relations": legami tra personaggi emersi in questo capitolo (label breve, es. "madre di", "alleato di"). In "a" e "b" usa l'id se esiste, altrimenti il nome.
 - "summary": 2 frasi in italiano su cosa succede nel capitolo.
 
 CAPITOLO:
 $clipped''';
-    final raw = await Gemini.ask(prompt, maxTokens: 2500, temperature: 0.2, json: true);
+    final raw = await Gemini.ask(prompt, maxTokens: 4000, temperature: 0.2, json: true);
     final data = _parseJson(raw);
     final pos = wikiPos(b, chapter);
+    final touched = <String>{};
     if (data != null) {
       final summary = (data['summary'] as String?)?.trim();
       if (summary != null && summary.isNotEmpty) w.summaries['${b.id}:$chapter'] = summary;
@@ -334,13 +424,20 @@ $clipped''';
         var type = (item['type'] as String?)?.toLowerCase().trim() ?? 'personaggio';
         if (!const ['personaggio', 'luogo', 'termine'].contains(type)) type = 'termine';
         final aliases = ((item['aliases'] as List?) ?? const []).whereType<String>().map((s) => s.trim()).where((s) => s.isNotEmpty && s.length < 40).toList();
-        WikiEntry? found = w.find(name);
+        final givenId = (item['id'] as String?)?.trim();
+        WikiEntry? found = givenId != null && givenId != 'nuovo' ? w.entries[givenId] : null;
+        found ??= w.find(name, type: type);
         for (final a in aliases) {
-          found ??= w.find(a);
+          found ??= w.find(a, type: type);
         }
         final WikiEntry e;
         if (found != null) {
           e = found;
+          // se ora conosciamo il nome completo, lo uso come nome principale
+          if (Wiki._tokens(name).length > Wiki._tokens(e.name).length && Wiki._tokens(name).containsAll(Wiki._tokens(e.name))) {
+            e.aliases.add(e.name);
+            e.name = name;
+          }
         } else {
           var id = Wiki.slug(name);
           while (w.entries.containsKey(id)) {
@@ -351,21 +448,116 @@ $clipped''';
         }
         final lower = e.name.toLowerCase();
         e.aliases.addAll(aliases.where((a) => a.toLowerCase() != lower));
+        if (name.toLowerCase() != lower) e.aliases.add(name);
         final note = (item['note'] as String?)?.trim() ?? '';
-        if (note.isNotEmpty) e.notes.add(WikiNote(pos, note, b.id, chapter));
+        if (note.isNotEmpty) {
+          e.notes.add(WikiNote(pos, note, b.id, chapter));
+          touched.add(e.id);
+        }
         final role = (item['role'] as String?)?.trim() ?? '';
         if (role.isNotEmpty && (e.roles.isEmpty || e.roles.last.text != role)) e.roles.add(WikiNote(pos, role, b.id, chapter));
       }
+      WikiEntry? byRef(String? ref) => ref == null ? null : (w.entries[ref.trim()] ?? w.find(ref));
       for (final r in (data['relations'] as List? ?? const [])) {
         if (r is! Map) continue;
-        final a = w.find((r['a'] as String?) ?? ''), c = w.find((r['b'] as String?) ?? '');
+        final a = byRef(r['a'] as String?), c = byRef(r['b'] as String?);
         final label = (r['label'] as String?)?.trim() ?? '';
         if (a == null || c == null || a.id == c.id || label.isEmpty) continue;
         final dup = w.relations.any((x) => ((x.a == a.id && x.b == c.id) || (x.a == c.id && x.b == a.id)) && x.label == label);
         if (!dup) w.relations.add(WikiRelation(a.id, c.id, label, pos));
       }
+      w.mergeDuplicates();
+      touched.removeWhere((id) => !w.entries.containsKey(id));
+      await _rewrite(w, b, chapter, touched.toList());
     }
     w.processed.add('${b.id}:$chapter');
+  }
+
+  /// Riscrive la scheda completa delle voci aggiornate: rilegge la versione
+  /// precedente e ci integra le novità del capitolo.
+  Future<void> _rewrite(Wiki w, Book b, int chapter, List<String> ids) async {
+    final pos = wikiPos(b, chapter);
+    for (var start = 0; start < ids.length; start += 8) {
+      final group = ids.sublist(start, (start + 8).clamp(0, ids.length));
+      final items = StringBuffer();
+      for (final id in group) {
+        final e = w.entries[id]!;
+        final prev = e.descriptionAt(pos - 1);
+        final news = e.notes.where((n) => n.pos == pos).map((n) => n.text).join(' ');
+        final old = prev.isNotEmpty ? prev : e.notes.where((n) => n.pos < pos).map((n) => n.text).join(' ');
+        items.writeln('### id: $id · ${e.name} (${e.type})');
+        items.writeln('SCHEDA ATTUALE: ${old.isEmpty ? '(vuota)' : old}');
+        items.writeln('NOVITÀ DEL CAPITOLO: $news');
+        items.writeln();
+      }
+      await _throttle();
+      final prompt = '''
+Aggiorna le schede della wiki di un lettore del libro «${b.title}». Per ogni voce rileggi la SCHEDA ATTUALE e integra le NOVITÀ DEL CAPITOLO, riscrivendo una scheda completa e ordinata in italiano.
+- Mantieni tutte le informazioni già presenti, correggile se le novità le precisano, non perdere dettagli.
+- Organizza in paragrafi brevi (per i personaggi: chi è, aspetto e carattere, abilità, storia finora, legami; per luoghi e termini: cos'è, caratteristiche, cosa è successo lì o perché è importante).
+- Può essere lunga quanto serve (anche più paragrafi), ma senza ripetizioni.
+- Non aggiungere nulla che non sia nella scheda o nelle novità: niente spoiler e niente conoscenze esterne.
+- Testo semplice, senza markdown, con paragrafi separati da una riga vuota.
+Rispondi SOLO con JSON: {"schede": {"id": "testo della scheda", ...}}
+
+$items''';
+      try {
+        final raw = await Gemini.ask(prompt, maxTokens: 8000, temperature: 0.3, json: true);
+        final data = _parseJson(raw);
+        final map = (data?['schede'] as Map?) ?? const {};
+        for (final id in group) {
+          final t = (map[id] as String?)?.trim();
+          if (t != null && t.isNotEmpty) w.entries[id]!.descriptions.add(WikiNote(pos, t, b.id, chapter));
+        }
+      } on GeminiError {
+        rethrow;
+      } catch (e) {
+        debugPrint('Schede non aggiornate: $e');
+      }
+    }
+  }
+
+  /// Ricrea la wiki da zero (tiene foto, note personali e voci create a mano).
+  Future<void> rebuild(Book b) async {
+    final w = await forBook(b);
+    final keep = <String, WikiEntry>{};
+    for (final e in w.entries.values) {
+      if (e.manual) {
+        keep[e.id] = e;
+      } else if (e.photo != null || e.myNotes.isNotEmpty) {
+        keep['__${e.name.toLowerCase()}'] = e;
+      }
+    }
+    w.entries
+      ..clear()
+      ..addEntries(keep.entries.where((k) => !k.key.startsWith('__')));
+    w.relations.clear();
+    w.processed.clear();
+    w.summaries.clear();
+    _kept[w.key] = {for (final k in keep.entries.where((k) => k.key.startsWith('__'))) k.key.substring(2): k.value};
+    await save(w);
+    await ensure(b, silent: false);
+  }
+
+  /// Foto e note da riattaccare alle voci ricreate dopo "Rigenera".
+  final Map<String, Map<String, WikiEntry>> _kept = {};
+
+  void _reattach(Wiki w) {
+    final kept = _kept[w.key];
+    if (kept == null || kept.isEmpty) return;
+    for (final e in w.entries.values) {
+      final old = kept.remove(e.name.toLowerCase()) ?? (() {
+        for (final a in e.aliases) {
+          final x = kept.remove(a.toLowerCase());
+          if (x != null) return x;
+        }
+        return null;
+      })();
+      if (old != null) {
+        e.photo ??= old.photo;
+        if (old.myNotes.isNotEmpty) e.myNotes = old.myNotes;
+      }
+    }
   }
 
   static Map<String, dynamic>? _parseJson(String raw) {

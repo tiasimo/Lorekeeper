@@ -153,6 +153,28 @@ class _WikiViewState extends State<WikiView> {
                     onPressed: () => WikiStore.I.ensure(b, silent: false),
                     child: Text('AGGIORNA', style: LK.label(11, color: LK.accent, spacing: 1)),
                   ),
+                if (!running)
+                  PopupMenuButton<String>(
+                    color: LK.card,
+                    icon: Icon(Icons.more_vert, color: LK.parchmentInk, size: 20),
+                    onSelected: (v) async {
+                      if (v != 'rebuild') return;
+                      final ok = await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          backgroundColor: LK.paper,
+                          title: Text('Rigenerare la wiki?', style: LK.display(20)),
+                          content: const Text('Gemini rilegge tutti i capitoli fino al punto in cui sei e ricrea schede complete, senza doppioni. Foto, note personali e voci create a mano restano.'),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annulla')),
+                            FilledButton(style: FilledButton.styleFrom(backgroundColor: LK.accent), onPressed: () => Navigator.pop(ctx, true), child: const Text('Rigenera')),
+                          ],
+                        ),
+                      );
+                      if (ok == true) WikiStore.I.rebuild(b);
+                    },
+                    itemBuilder: (_) => [PopupMenuItem(value: 'rebuild', child: Text('Rigenera wiki', style: LK.body(14)))],
+                  ),
               ]),
               if (running && st != null && st.total > 0) ...[
                 const SizedBox(height: 8),
@@ -298,6 +320,31 @@ class _EntryScreenState extends State<EntryScreen> {
     if (mounted) setState(() {});
   }
 
+  /// Unisce questa voce a un'altra (doppione): restano un solo nome e tutte le informazioni.
+  Future<void> _merge(WikiEntry e) async {
+    final w = _w!;
+    final others = w.entries.values.where((x) => x.id != e.id && x.type == e.type).toList()..sort((a, b) => a.name.compareTo(b.name));
+    final target = await showModalBottomSheet<WikiEntry>(
+      context: context,
+      backgroundColor: LK.paper,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.6,
+        builder: (ctx, scroll) => ListView(controller: scroll, children: [
+          Padding(padding: const EdgeInsets.fromLTRB(20, 0, 20, 10), child: Text('Unisci «${e.name}» con…', style: LK.display(19))),
+          for (final o in others) ListTile(leading: WikiAvatar(o, size: 36), title: Text(o.name, style: LK.body(15)), onTap: () => Navigator.pop(ctx, o)),
+        ]),
+      ),
+    );
+    if (target == null) return;
+    w.mergeInto(e, target);
+    await WikiStore.I.save(w);
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => EntryScreen(book: widget.book, entryId: target.id)));
+  }
+
   Future<void> _edit(WikiEntry e) async {
     final name = TextEditingController(text: e.name);
     final aliases = TextEditingController(text: e.aliases.join(', '));
@@ -322,6 +369,13 @@ class _EntryScreenState extends State<EntryScreen> {
               if (mounted) Navigator.pop(context);
             },
             child: Text('Elimina', style: TextStyle(color: LK.accent)),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx, false);
+              await _merge(e);
+            },
+            child: Text('Unisci con…', style: TextStyle(color: LK.ink)),
           ),
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annulla')),
           FilledButton(style: FilledButton.styleFrom(backgroundColor: LK.accent), onPressed: () => Navigator.pop(ctx, true), child: const Text('Salva')),
@@ -405,20 +459,36 @@ class _EntryScreenState extends State<EntryScreen> {
             const SizedBox(height: 20),
             const SectionLabel('Descrizione'),
             if (e.manualText != null && e.manualText!.isNotEmpty) Padding(padding: const EdgeInsets.only(bottom: 10), child: Text(e.manualText!, style: LK.body(15, height: 1.6))),
-            if (notes.isEmpty && (e.manualText == null || e.manualText!.isEmpty))
-              Text('Ancora nessuna informazione fino al punto in cui sei.', style: LK.body(14, color: LK.muted, style: FontStyle.italic)),
-            for (final n in notes)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Container(
-                    margin: const EdgeInsets.only(top: 3, right: 10),
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(color: LK.line, borderRadius: BorderRadius.circular(5)),
-                    child: Text(_where(b, n).replaceAll('CAP. ', 'C').replaceAll('VOL. ', 'V'), style: LK.label(9, spacing: 0.4)),
-                  ),
-                  Expanded(child: Text(n.text, style: LK.body(15, height: 1.55))),
-                ]),
+            if (e.descriptionAt(limit).isNotEmpty)
+              Text(e.descriptionAt(limit), style: LK.body(15.5, height: 1.65))
+            else if (notes.isEmpty && (e.manualText == null || e.manualText!.isEmpty))
+              Text('Ancora nessuna informazione fino al punto in cui sei.', style: LK.body(14, color: LK.muted, style: FontStyle.italic))
+            else
+              for (final n in notes) Padding(padding: const EdgeInsets.only(bottom: 10), child: Text(n.text, style: LK.body(15, height: 1.55))),
+            if (notes.isNotEmpty && e.descriptionAt(limit).isNotEmpty)
+              Theme(
+                data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  iconColor: LK.accent,
+                  collapsedIconColor: LK.muted,
+                  title: Text('CRONOLOGIA CAPITOLO PER CAPITOLO', style: LK.label(10, spacing: 1.4)),
+                  children: [
+                    for (final n in notes)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Container(
+                            margin: const EdgeInsets.only(top: 3, right: 10),
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(color: LK.line, borderRadius: BorderRadius.circular(5)),
+                            child: Text(_where(b, n).replaceAll('CAP. ', 'C').replaceAll('VOL. ', 'V'), style: LK.label(9, spacing: 0.4)),
+                          ),
+                          Expanded(child: Text(n.text, style: LK.body(14, height: 1.5, color: LK.muted))),
+                        ]),
+                      ),
+                  ],
+                ),
               ),
             if (rels.isNotEmpty) ...[
               const SizedBox(height: 14),
@@ -521,7 +591,10 @@ Future<void> showEntryPeek(BuildContext context, Book book, WikiEntry e) {
           ]),
           const SizedBox(height: 14),
           if (e.manualText != null && e.manualText!.isNotEmpty) Text(e.manualText!, style: LK.body(15, height: 1.5)),
-          for (final n in shown) Padding(padding: const EdgeInsets.only(bottom: 6), child: Text(n.text, style: LK.body(15, height: 1.5))),
+          if (e.descriptionAt(limit).isNotEmpty)
+            Text(e.descriptionAt(limit), maxLines: 7, overflow: TextOverflow.ellipsis, style: LK.body(15, height: 1.5))
+          else
+            for (final n in shown) Padding(padding: const EdgeInsets.only(bottom: 6), child: Text(n.text, style: LK.body(15, height: 1.5))),
           if (e.myNotes.isNotEmpty) ...[
             const SizedBox(height: 6),
             Text('Le tue note: ${e.myNotes}', style: LK.body(13, color: LK.muted, style: FontStyle.italic)),
@@ -559,6 +632,27 @@ class _GraphScreenState extends State<GraphScreen> {
   Wiki? _w;
   final Map<String, Offset> _pos = {};
   List<WikiRelation> _rels = const [];
+  final _tc = TransformationController();
+  Size? _fittedFor;
+
+  /// Centra il grafo e lo adatta allo schermo.
+  void _fit(Size view) {
+    if (_pos.isEmpty || _fittedFor == view) return;
+    _fittedFor = view;
+    var minX = double.infinity, minY = double.infinity, maxX = -double.infinity, maxY = -double.infinity;
+    for (final p in _pos.values) {
+      minX = math.min(minX, p.dx);
+      minY = math.min(minY, p.dy);
+      maxX = math.max(maxX, p.dx);
+      maxY = math.max(maxY, p.dy);
+    }
+    final bw = (maxX - minX) + 160, bh = (maxY - minY) + 160;
+    final sc = math.min(1.4, math.min(view.width / bw, view.height / bh));
+    final cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+    _tc.value = Matrix4.identity()
+      ..translate(view.width / 2 - cx * sc, view.height / 2 - cy * sc)
+      ..scale(sc);
+  }
 
   @override
   void initState() {
@@ -654,9 +748,13 @@ class _GraphScreenState extends State<GraphScreen> {
                         ),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(7),
-                          child: InteractiveViewer(
+                          child: LayoutBuilder(builder: (context, c) {
+                            final view = Size(c.maxWidth, c.maxHeight);
+                            WidgetsBinding.instance.addPostFrameCallback((_) => _fit(view));
+                            return InteractiveViewer(
+                        transformationController: _tc,
                         constrained: false,
-                        minScale: 0.3,
+                        minScale: 0.2,
                         maxScale: 2.5,
                         boundaryMargin: const EdgeInsets.all(400),
                         child: SizedBox(
@@ -687,7 +785,8 @@ class _GraphScreenState extends State<GraphScreen> {
                               ),
                           ]),
                         ),
-                      ),
+                      );
+                          }),
                         ),
                       ),
           ),

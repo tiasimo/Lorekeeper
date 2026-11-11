@@ -946,7 +946,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
         final w = c.maxWidth;
         return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           _block(PageBlock(chapterTitle: book.chapters.isEmpty ? book.title : book.chapters[_chapter].title), st, w),
-          for (final p in _paras)
+          for (final p in skipTitleRepeats(_paras, book.chapters.isEmpty ? book.title : book.chapters[_chapter].title))
             if (p.image != null)
               _block(PageBlock(image: p.image, imageHeight: w * (_imgSizes[p.image!]?.aspectRatio == null ? 4 / 3 : 1 / _imgSizes[p.image!]!.aspectRatio)), st, w)
             else if (p.level == 0 && PageStyle.isOrnament(p.plain))

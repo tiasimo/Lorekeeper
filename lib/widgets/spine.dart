@@ -250,6 +250,7 @@ class ShelfBoard extends StatelessWidget {
     final w = wood ?? Wood.all.first;
     return Container(
       height: 16,
+      width: double.infinity,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(2),
         boxShadow: [
@@ -259,7 +260,7 @@ class ShelfBoard extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(2),
-        child: CustomPaint(painter: _GrainPainter(w)),
+        child: SizedBox(width: double.infinity, height: 16, child: CustomPaint(painter: _GrainPainter(w))),
       ),
     );
   }
