@@ -43,6 +43,11 @@ jobs:
 
       - run: flutter pub get
 
+      - name: Icona e avvio con la lanterna
+        run: |
+          dart run flutter_launcher_icons
+          dart run flutter_native_splash:create
+
       - name: Compila APK
         run: flutter build apk --release
 
