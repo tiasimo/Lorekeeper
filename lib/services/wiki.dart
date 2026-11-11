@@ -541,6 +541,7 @@ TRAMA DEL VOLUME:
 ${plot.isEmpty ? '(non disponibile)' : plot}''';
     final raw = await Gemini.ask(prompt, maxTokens: 8000, temperature: 0.2, json: true);
     final data = _parseJson(raw);
+    if (data == null) throw GeminiError('Gemini ha risposto in modo non valido: riprova.');
     WikiEntry? byRef(String? ref) => ref == null ? null : (w.entries[ref.trim()] ?? w.find(ref));
     final rels = <WikiRelation>[];
     for (final r in (data['relations'] as List? ?? const [])) {
