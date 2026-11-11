@@ -11,7 +11,7 @@ dependencies:
     sdk: flutter
   archive: '>=3.6.0 <5.0.0'
   xml: ^6.5.0
-  file_picker: ^10.0.0
+  file_picker: ^8.1.7
   path_provider: ^2.1.4
   path: ^1.9.0
   shared_preferences: ^2.3.0
@@ -26,6 +26,12 @@ dependencies:
   package_info_plus: ^8.1.0
   open_filex: ^4.6.0
   home_widget: ^0.7.0
+  get: ^4.7.3
+  # Motore delle estensioni manga (Mangayomi + Mihon/Aniyomi), lo stesso di AnymeX
+  anymex_extension_runtime_bridge:
+    git:
+      url: https://github.com/RyanYuuki/AnymeXExtensionRuntimeBridge.git
+      ref: 15ad1d8261f2049ee97805fdde16689d2488c751
 
 dev_dependencies:
   flutter_test:

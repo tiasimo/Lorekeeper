@@ -176,3 +176,61 @@ class ContinueWidget : HomeWidgetProvider() {
 }
 """)
 print(open(M).read())
+
+# ---------------------------------------------------------------------------
+# Manga: motore delle estensioni di AnymeX (Mangayomi + Mihon/Aniyomi)
+m = open(M).read()
+extra_perms = ['QUERY_ALL_PACKAGES', 'REQUEST_DELETE_PACKAGES']
+for perm in extra_perms:
+    tag = f'<uses-permission android:name="android.permission.{perm}"/>'
+    if tag not in m:
+        m = m.replace('<application', tag + '\n    <application', 1)
+open(M, 'w').write(m)
+
+root_kts = 'android/build.gradle.kts'
+if os.path.exists(root_kts):
+    g = open(root_kts).read()
+    if 'jitpack.io' not in g:
+        g = g.replace('mavenCentral()', 'mavenCentral()\n        maven { url = uri("https://jitpack.io") }', 1)
+    HOOK = '''// Plugin vecchi senza namespace e con Java diverso: li allineo (serve al motore delle estensioni)
+subprojects {
+    afterEvaluate {
+        val android = extensions.findByName("android") ?: return@afterEvaluate
+        try {
+            val ns = android.javaClass.getMethod("getNamespace").invoke(android)
+            if (ns == null) {
+                android.javaClass.getMethod("setNamespace", String::class.java).invoke(android, project.group.toString())
+            }
+        } catch (e: Exception) {
+        }
+        try {
+            val co = android.javaClass.getMethod("getCompileOptions").invoke(android)
+            co.javaClass.getMethod("setSourceCompatibility", JavaVersion::class.java).invoke(co, JavaVersion.VERSION_17)
+            co.javaClass.getMethod("setTargetCompatibility", JavaVersion::class.java).invoke(co, JavaVersion.VERSION_17)
+        } catch (e: Exception) {
+        }
+    }
+}
+
+'''
+    if 'getNamespace' not in g:
+        anchor = 'subprojects {\n    project.evaluationDependsOn(":app")'
+        g = g.replace(anchor, HOOK + anchor, 1) if anchor in g else HOOK + g
+    open(root_kts, 'w').write(g)
+    print(g)
+
+app_kts = 'android/app/build.gradle.kts'
+if os.path.exists(app_kts):
+    g = open(app_kts).read()
+    if 'OSGI-INF' not in g:
+        g = g.replace('android {', 'android {\n    packaging {\n        resources {\n            excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"\n        }\n    }', 1)
+    g = g.replace('minSdk = flutter.minSdkVersion', 'minSdk = 24')
+    open(app_kts, 'w').write(g)
+
+props = 'android/gradle.properties'
+pv = open(props).read() if os.path.exists(props) else ''
+for line in ['kotlin.jvm.target.validation.mode=warning', 'android.enableJetifier=true']:
+    if line.split('=')[0] not in pv:
+        pv += '\n' + line
+open(props, 'w').write(pv + '\n')
+print(pv)

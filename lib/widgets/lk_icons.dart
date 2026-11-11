@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 /// Icone disegnate a mano, tratto sottile in stile inciso.
-enum LKGlyph { library, read, add, settings, back, chapters, recap, search, graph, quill }
+enum LKGlyph { library, read, add, settings, back, chapters, recap, search, graph, quill, manga }
 
 class LKIcon extends StatelessWidget {
   final LKGlyph glyph;
@@ -67,6 +67,15 @@ class _GlyphPainter extends CustomPainter {
             ..lineTo(18.5, 5.2),
           p,
         );
+        break;
+      case LKGlyph.manga:
+        // tavola a vignette con un fumetto
+        c.drawRRect(RRect.fromLTRBR(3.5, 3.5, 20.5, 20.5, const Radius.circular(1.2)), p);
+        c.drawLine(const Offset(3.5, 11), const Offset(20.5, 11), p);
+        c.drawLine(const Offset(11, 3.5), const Offset(9.5, 11), p);
+        c.drawLine(const Offset(14, 11), const Offset(15.5, 20.5), p);
+        c.drawOval(const Rect.fromLTRB(5.5, 13.5, 12, 17.5), p);
+        c.drawLine(const Offset(7, 17.2), const Offset(6.2, 19), p);
         break;
       case LKGlyph.add:
         c.drawCircle(const Offset(12, 12), 8.5, p);

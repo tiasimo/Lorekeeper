@@ -310,7 +310,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ]),
             const SizedBox(height: 30),
             const SectionLabel('Informazioni'),
-            Text('Lorekeeper 0.7 · il custode delle tue storie', style: LK.body(14)),
+            Text('Lorekeeper 0.8 · il custode delle tue storie', style: LK.body(14)),
             FutureBuilder<String>(
               future: Updater.currentVersion(),
               builder: (_, s) => Text(s.data ?? '', style: LK.body(12.5, color: LK.muted)),

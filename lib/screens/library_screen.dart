@@ -15,6 +15,7 @@ import 'book_screen.dart';
 import 'reader_screen.dart';
 import 'settings_screen.dart';
 import 'spine_editor_screen.dart';
+import 'manga/manga_home.dart';
 import 'stats_screen.dart';
 import '../services/home_widget_sync.dart';
 import '../services/updater.dart';
@@ -319,6 +320,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 child: FloatingNav(selected: 0, items: [
                   NavItem(LKGlyph.library, 'Libreria', () {}),
                   NavItem(LKGlyph.read, 'Continua a leggere', _continue),
+                  NavItem(LKGlyph.manga, 'Manga', () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MangaHome()))),
                   NavItem(LKGlyph.add, 'Importa EPUB', _import),
                   NavItem(LKGlyph.settings, 'Impostazioni', () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()))),
                 ]),

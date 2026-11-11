@@ -23,8 +23,10 @@ class Backup {
       arch.addFile(ArchiveFile(name, bytes.length, bytes));
     }
 
-    final lib = File(p.join(root.path, 'library.json'));
-    if (lib.existsSync()) addFile(lib, 'library.json');
+    for (final n in ['library.json', 'manga.json']) {
+      final f = File(p.join(root.path, n));
+      if (f.existsSync()) addFile(f, n);
+    }
     for (final f in root.listSync().whereType<File>()) {
       final n = p.basename(f.path);
       if (n.startsWith('notes_') && n.endsWith('.json')) addFile(f, n);
