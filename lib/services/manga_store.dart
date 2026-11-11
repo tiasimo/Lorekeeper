@@ -7,8 +7,14 @@ import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:path/path.dart' as p;
 
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../models/book.dart';
+import '../widgets/manga_image.dart';
 import 'anilist.dart';
+import 'cover_colors.dart';
 import 'library_store.dart';
+import 'reminders.dart';
 
 /// Capitolo di un manga salvato.
 class MChapter {
@@ -33,6 +39,11 @@ class SavedManga {
   List<MChapter> chapters;
   final Set<String> read; // url dei capitoli letti
   final Set<String> bookmarks = {}; // capitoli segnati
+  // dorso (come per le novel)
+  int? spineColor, spineTextColor, coverSpineColor, coverSpineTextColor;
+  String spinePalette = 'cover', spineStyle = 'Tomo';
+  double spineHeight = 1.0, spineWidth = 1.0;
+  int newChapters = 0; // trovati all'ultimo aggiornamento
   String? lastChapter; // url
   int lastPage;
   bool inLibrary;
@@ -90,6 +101,65 @@ class SavedManga {
 
   double get progress => chapters.isEmpty ? 0 : read.length / chapters.length;
 
+  int get unread => (chapters.length - chapters.where((c) => read.contains(c.url)).length).clamp(0, 100000);
+
+  /// Scaffale: 0 in corso, 1 da leggere, 2 completati.
+  int get shelf {
+    switch (alStatus) {
+      case 'COMPLETED':
+        return unread > 0 && lastReadAt != null && newChapters > 0 ? 0 : 2;
+      case 'PLANNING':
+        return lastReadAt == null ? 1 : 0;
+      case 'CURRENT':
+      case 'REPEATING':
+      case 'PAUSED':
+        return 0;
+    }
+    if (lastReadAt == null && read.isEmpty) return 1;
+    if (chapters.isNotEmpty && unread == 0) return 2;
+    return 0;
+  }
+
+  /// Libro "finto" per riusare dorso, animazione ed editor delle novel.
+  Book? _book;
+  Book get spineBook {
+    final b = _book ??= Book(
+      id: 'manga-${key.hashCode.toUnsigned(32)}',
+      title: title,
+      author: author ?? '',
+      filePath: '',
+      coverPath: cover != null && cover!.startsWith('/') ? cover : null,
+      chapters: const [],
+      spineColor: spineColor ?? 0xFF7A1E2E,
+      spineTextColor: spineTextColor ?? 0xFFE8C977,
+      coverSpineColor: coverSpineColor ?? spineColor ?? 0xFF7A1E2E,
+      coverSpineTextColor: coverSpineTextColor ?? spineTextColor ?? 0xFFE8C977,
+      addedAt: addedAt,
+    );
+    b
+      ..title = title
+      ..spineColor = spineColor ?? b.spineColor
+      ..spineTextColor = spineTextColor ?? b.spineTextColor
+      ..coverSpineColor = coverSpineColor ?? b.coverSpineColor
+      ..coverSpineTextColor = coverSpineTextColor ?? b.coverSpineTextColor
+      ..spinePalette = spinePalette
+      ..spineStyle = spineStyle
+      ..spineHeight = spineHeight
+      ..spineWidth = spineWidth
+      ..lastReadAt = lastReadAt;
+    return b;
+  }
+
+  void applySpine(Book b) {
+    spineColor = b.spineColor;
+    spineTextColor = b.spineTextColor;
+    spinePalette = b.spinePalette;
+    spineStyle = b.spineStyle;
+    spineHeight = b.spineHeight;
+    spineWidth = b.spineWidth;
+    if (b.title.trim().isNotEmpty) title = b.title.trim();
+  }
+
   Map<String, dynamic> toJson() => {
         'sid': sourceId,
         'mid': managerId,
@@ -113,6 +183,15 @@ class SavedManga {
         'alS': alScore,
         'alT': alTotal,
         'bm': bookmarks.toList(),
+        'sc': spineColor,
+        'stc': spineTextColor,
+        'csc': coverSpineColor,
+        'cstc': coverSpineTextColor,
+        'sp': spinePalette,
+        'ss': spineStyle,
+        'sh': spineHeight,
+        'sw': spineWidth,
+        'new': newChapters,
       };
 
   factory SavedManga.fromJson(Map j) => SavedManga(
@@ -138,7 +217,16 @@ class SavedManga {
         alScore: ((j['alS'] as num?) ?? 0).toDouble(),
       )
         ..alTotal = j['alT'] as int?
-        ..bookmarks.addAll(((j['bm'] as List?) ?? []).cast<String>());
+        ..bookmarks.addAll(((j['bm'] as List?) ?? []).cast<String>())
+        ..spineColor = j['sc'] as int?
+        ..spineTextColor = j['stc'] as int?
+        ..coverSpineColor = j['csc'] as int?
+        ..coverSpineTextColor = j['cstc'] as int?
+        ..spinePalette = (j['sp'] as String?) ?? 'cover'
+        ..spineStyle = (j['ss'] as String?) ?? 'Tomo'
+        ..spineHeight = ((j['sh'] as num?) ?? 1).toDouble()
+        ..spineWidth = ((j['sw'] as num?) ?? 1).toDouble()
+        ..newChapters = (j['new'] as int?) ?? 0;
 
   /// Numero del capitolo per AniList (che conta i capitoli letti).
   int chapterNumber(MChapter c) {
@@ -323,9 +411,90 @@ class MangaStore extends ChangeNotifier {
     save();
   }
 
+  /// Colori del dorso presi dalla copertina (la prima volta).
+  final Set<String> _coloring = {};
+  Future<void> ensureSpine(SavedManga m) async {
+    if (m.coverSpineColor != null || (m.cover ?? '').isEmpty || _coloring.contains(m.key)) return;
+    _coloring.add(m.key);
+    try {
+      final bytes = await MangaImages.get(m.cover!, sourceId: m.sourceId, managerId: m.managerId);
+      final (bg, tx) = await CoverColors.fromBytes(bytes);
+      m.coverSpineColor = bg;
+      m.coverSpineTextColor = tx;
+      if (m.spinePalette == 'cover') {
+        m.spineColor = bg;
+        m.spineTextColor = tx;
+      }
+      save();
+    } catch (_) {
+    } finally {
+      _coloring.remove(m.key);
+    }
+  }
+
+  // ---------- aggiornamento dei capitoli ----------
+  bool refreshing = false;
+  int refreshDone = 0, refreshTotal = 0;
+
+  /// Controlla i nuovi capitoli di tutti i manga in libreria. Restituisce quanti ne ha trovati.
+  Future<int> refreshLibrary() async {
+    if (refreshing) return 0;
+    await load();
+    final list = library;
+    if (list.isEmpty) return 0;
+    await ensureBridge();
+    refreshing = true;
+    refreshDone = 0;
+    refreshTotal = list.length;
+    notifyListeners();
+    var found = 0;
+    var i = 0;
+    Future<void> worker() async {
+      while (i < list.length) {
+        final m = list[i++];
+        final s = sourceFor(m);
+        if (s != null) {
+          final before = m.chapters.map((c) => c.url).toSet();
+          try {
+            await refresh(s, m);
+            final fresh = m.chapters.where((c) => !before.contains(c.url) && !m.read.contains(c.url)).length;
+            if (before.isNotEmpty && fresh > 0) {
+              m.newChapters += fresh;
+              found += fresh;
+            }
+          } catch (_) {}
+        }
+        refreshDone++;
+        notifyListeners();
+      }
+    }
+
+    await Future.wait([worker(), worker(), worker()]);
+    refreshing = false;
+    if (found > 0) {
+      final names = list.where((m) => m.newChapters > 0).map((m) => '${m.title} (+${m.newChapters})').take(4).join(', ');
+      Reminders.newChapters(found, names);
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('manga.lastRefresh', DateTime.now().millisecondsSinceEpoch);
+    save();
+    return found;
+  }
+
+  /// Aggiornamento automatico: al massimo ogni 12 ore, all'apertura dell'app.
+  Future<int> refreshIfDue() async {
+    await load();
+    if (library.isEmpty) return 0;
+    final prefs = await SharedPreferences.getInstance();
+    final last = prefs.getInt('manga.lastRefresh') ?? 0;
+    if (DateTime.now().millisecondsSinceEpoch - last < 12 * 3600 * 1000) return 0;
+    return refreshLibrary();
+  }
+
   void setProgress(SavedManga m, MChapter c, int page) {
     m.lastChapter = c.url;
     m.lastPage = page;
+    m.newChapters = 0;
     m.lastReadAt = DateTime.now();
     save();
   }

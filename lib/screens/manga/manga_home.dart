@@ -6,6 +6,8 @@ import '../../services/manga_store.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/manga_image.dart';
+import '../../widgets/spine.dart';
+import '../spine_editor_screen.dart';
 import 'anilist_ui.dart';
 import 'manga_detail.dart';
 
@@ -28,6 +30,7 @@ class _MangaHomeState extends State<MangaHome> {
     store.load();
     store.ensureBridge().then((_) {
       if (mounted) setState(() => _starting = false);
+      store.refreshIfDue();
     }).catchError((Object e) {
       if (mounted) {
         setState(() {
@@ -47,7 +50,24 @@ class _MangaHomeState extends State<MangaHome> {
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               const BackLink(trail: 'Libreria'),
-              Text('Manga', style: LK.display(30)),
+              Row(children: [
+                Expanded(child: Text('Manga', style: LK.display(30))),
+                ListenableBuilder(
+                  listenable: MangaStore.I,
+                  builder: (context, _) => MangaStore.I.refreshing
+                      ? Padding(padding: const EdgeInsets.all(12), child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: LK.accent)))
+                      : IconButton(
+                          tooltip: 'Cerca nuovi capitoli',
+                          icon: Icon(Icons.sync, color: LK.accent, size: 28),
+                          onPressed: () async {
+                            final n = await MangaStore.I.refreshLibrary();
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(n == 0 ? 'Nessun capitolo nuovo' : '$n ${n == 1 ? 'capitolo nuovo' : 'capitoli nuovi'}')));
+                            }
+                          },
+                        ),
+                ),
+              ]),
               const SizedBox(height: 12),
               Center(
                 child: FittedBox(
@@ -136,18 +156,158 @@ SliverGridDelegate _grid(BuildContext context) => SliverGridDelegateWithMaxCross
     );
 
 // ======================================================================
-// Libreria
+// Libreria: scaffali fissi con i dorsi, divisi per stato
 // ======================================================================
+const _shelfNames = ['In corso', 'Da leggere', 'Completati'];
+const _shelfWoods = [Wood('Noce', Color(0xFF6E4B33), Color(0xFF4E3322), Color(0xFF3E2718)), Wood('Quercia', Color(0xFFA9825A), Color(0xFF86633F), Color(0xFF6E4F30)), Wood('Mogano', Color(0xFF7E3B26), Color(0xFF5A2516), Color(0xFF461A0E))];
+
 class _LibraryTab extends StatelessWidget {
   final VoidCallback onExplore;
   const _LibraryTab({required this.onExplore});
+
+  void _open(BuildContext context, SavedManga m) {
+    Navigator.of(context).push(bookRoute(MangaDetail(manga: m)));
+  }
+
+  void _options(BuildContext context, SavedManga m) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: LK.paper,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(title: Text(m.title, style: LK.display(17))),
+          ListTile(
+            leading: Icon(Icons.brush_outlined, color: LK.accent),
+            title: Text('Modifica il dorso', style: LK.body(15)),
+            onTap: () {
+              Navigator.pop(ctx);
+              Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => SpineEditorScreen(
+                  book: m.spineBook,
+                  onSave: (b) {
+                    m.applySpine(b);
+                    MangaStore.I.save();
+                  },
+                ),
+              ));
+            },
+          ),
+          ListTile(
+            leading: Icon(Icons.done_all, color: LK.accent),
+            title: Text('Segna tutto come letto', style: LK.body(15)),
+            onTap: () {
+              Navigator.pop(ctx);
+              for (final c in m.chapters) {
+                m.read.add(c.url);
+              }
+              m.newChapters = 0;
+              m.lastReadAt ??= DateTime.now();
+              MangaStore.I.save();
+            },
+          ),
+          ListTile(
+            leading: Icon(Icons.bookmark_remove_outlined, color: LK.muted),
+            title: Text('Togli dalla libreria', style: LK.body(15)),
+            onTap: () {
+              Navigator.pop(ctx);
+              MangaStore.I.toggleLibrary(m);
+            },
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _spine(BuildContext context, SavedManga m) {
+    MangaStore.I.ensureSpine(m);
+    final b = m.spineBook;
+    final badge = m.shelf == 1 ? 0 : m.unread;
+    return GestureDetector(
+      onTap: () => _open(context, m),
+      onLongPress: () => _options(context, m),
+      child: Stack(clipBehavior: Clip.none, alignment: Alignment.bottomCenter, children: [
+        Hero(tag: 'book-${b.id}', child: SpineView.of(b, baseHeight: 190)),
+        if (badge > 0)
+          Positioned(
+            top: -8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              constraints: const BoxConstraints(minWidth: 22),
+              decoration: BoxDecoration(
+                color: m.newChapters > 0 ? LK.accent : const Color(0xFF3A6E8E),
+                borderRadius: BorderRadius.circular(9),
+                boxShadow: const [BoxShadow(color: Color(0x55000000), blurRadius: 4, offset: Offset(0, 2))],
+              ),
+              child: Text(badge > 999 ? '999+' : '$badge', textAlign: TextAlign.center, style: LK.label(9.5, color: Colors.white, spacing: 0.2)),
+            ),
+          ),
+      ]),
+    );
+  }
+
+  /// Scaffale fisso: i dorsi vanno a capo su più ripiani.
+  Widget _shelf(BuildContext context, int kind, List<SavedManga> list) {
+    final wood = _shelfWoods[kind];
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(22, 18, 22, 10),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
+          Text(_shelfNames[kind], style: LK.display(20, color: LK.accent).copyWith(fontStyle: FontStyle.italic)),
+          const SizedBox(width: 10),
+          Text('${list.length} ${list.length == 1 ? 'manga' : 'manga'}', style: LK.label(9.5, spacing: 0.8)),
+        ]),
+      ),
+      LayoutBuilder(builder: (context, c) {
+        final inner = c.maxWidth - 32 - ShelfSide.width * 2 - 20;
+        // divido i dorsi in ripiani in base alla larghezza
+        final rows = <List<SavedManga>>[];
+        var cur = <SavedManga>[];
+        var used = 0.0;
+        for (final m in list) {
+          final w = 42.0 * m.spineWidth * 190 / 200 + 6;
+          if (used + w > inner && cur.isNotEmpty) {
+            rows.add(cur);
+            cur = [];
+            used = 0;
+          }
+          cur.add(m);
+          used += w;
+        }
+        if (cur.isNotEmpty) rows.add(cur);
+        return Column(children: [
+          for (final row in rows)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Stack(clipBehavior: Clip.none, children: [
+                Column(children: [
+                  SizedBox(
+                    height: 230,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: ShelfSide.width + 10),
+                      child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                        for (final m in row) Padding(padding: const EdgeInsets.only(right: 6), child: _spine(context, m)),
+                      ]),
+                    ),
+                  ),
+                  ShelfBoard(wood: wood),
+                ]),
+                Positioned(left: 0, top: 6, bottom: -5, child: ShelfSide(wood: wood)),
+                Positioned(right: 0, top: 6, bottom: -5, child: ShelfSide(wood: wood, right: true)),
+              ]),
+            ),
+        ]);
+      }),
+    ]);
+  }
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: MangaStore.I,
       builder: (context, _) {
-        final list = MangaStore.I.library;
+        final store = MangaStore.I;
+        final list = store.library;
         if (list.isEmpty) {
           return Center(
             child: Padding(
@@ -167,23 +327,33 @@ class _LibraryTab extends StatelessWidget {
             ),
           );
         }
-        return GridView.builder(
-          padding: const EdgeInsets.fromLTRB(20, 6, 20, 40),
-          gridDelegate: _grid(context),
-          itemCount: list.length,
-          itemBuilder: (context, i) {
-            final m = list[i];
-            final unread = m.chapters.length - m.read.length;
-            return _MangaTile(
-              title: m.title,
-              cover: m.cover,
-              sourceId: m.sourceId,
-              managerId: m.managerId,
-              progress: m.progress,
-              sub: unread > 0 ? '$unread DA LEGGERE' : m.sourceName.toUpperCase(),
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => MangaDetail(manga: m))),
-            );
-          },
+        final groups = [<SavedManga>[], <SavedManga>[], <SavedManga>[]];
+        for (final m in list) {
+          groups[m.shelf].add(m);
+        }
+        // in corso e completati: prima l'ultimo letto; da leggere: prima l'ultimo aggiunto
+        groups[0].sort((a, b) => (b.lastReadAt ?? b.addedAt).compareTo(a.lastReadAt ?? a.addedAt));
+        groups[1].sort((a, b) => b.addedAt.compareTo(a.addedAt));
+        groups[2].sort((a, b) => (b.lastReadAt ?? b.addedAt).compareTo(a.lastReadAt ?? a.addedAt));
+        return RefreshIndicator(
+          color: LK.accent,
+          onRefresh: () => store.refreshLibrary(),
+          child: ListView(
+            padding: const EdgeInsets.only(bottom: 40),
+            children: [
+              if (store.refreshing)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 4, 22, 0),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('Cerco nuovi capitoli… ${store.refreshDone}/${store.refreshTotal}', style: LK.label(9.5, spacing: 0.6)),
+                    const SizedBox(height: 4),
+                    LinearProgressIndicator(value: store.refreshTotal == 0 ? null : store.refreshDone / store.refreshTotal, color: LK.accent, backgroundColor: LK.line),
+                  ]),
+                ),
+              for (var k = 0; k < 3; k++)
+                if (groups[k].isNotEmpty) _shelf(context, k, groups[k]),
+            ],
+          ),
         );
       },
     );

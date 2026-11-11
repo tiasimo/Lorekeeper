@@ -55,6 +55,21 @@ class Reminders {
     }
   }
 
+  /// Avviso dei nuovi capitoli dei manga.
+  static Future<void> newChapters(int count, String titles) async {
+    try {
+      await _init();
+      await _n.show(
+        8,
+        count == 1 ? 'Un capitolo nuovo' : '$count capitoli nuovi',
+        titles,
+        const NotificationDetails(
+          android: AndroidNotificationDetails('manga', 'Nuovi capitoli', channelDescription: 'Capitoli usciti dei manga in libreria'),
+        ),
+      );
+    } catch (_) {}
+  }
+
   static Future<void> cancel() async {
     try {
       await _init();

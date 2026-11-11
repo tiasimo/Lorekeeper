@@ -16,6 +16,7 @@ import 'reader_screen.dart';
 import 'settings_screen.dart';
 import 'spine_editor_screen.dart';
 import 'manga/manga_home.dart';
+import '../services/manga_store.dart';
 import 'stats_screen.dart';
 import '../services/home_widget_sync.dart';
 import '../services/updater.dart';
@@ -39,6 +40,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       final u = await Updater.checkIfDue();
       if (u != null && mounted) showUpdateDialog(context, u);
     });
+    // Manga: controllo dei nuovi capitoli (al massimo ogni 12 ore)
+    Future.delayed(const Duration(seconds: 6), () => MangaStore.I.refreshIfDue().catchError((_) => 0));
     // Widget "Continua a leggere": apre direttamente l'ultimo libro.
     HomeWidgetSync.update();
     HomeWidget.initiallyLaunchedFromHomeWidget().then(_fromWidget).catchError((_) {});

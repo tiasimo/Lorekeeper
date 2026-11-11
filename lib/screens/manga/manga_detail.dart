@@ -92,7 +92,7 @@ class _MangaDetailState extends State<MangaDetail> {
                   const BackLink(trail: 'Manga'),
                   const SizedBox(height: 6),
                   Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Container(
+                    bookHero(m.spineBook, Container(
                       width: 116,
                       height: 170,
                       decoration: BoxDecoration(borderRadius: BorderRadius.circular(6), boxShadow: const [BoxShadow(color: Color(0x44000000), blurRadius: 12, offset: Offset(0, 5))]),
@@ -100,7 +100,7 @@ class _MangaDetailState extends State<MangaDetail> {
                         borderRadius: BorderRadius.circular(6),
                         child: (m.cover ?? '').isEmpty ? Container(color: LK.accentSoft) : MangaImage(m.cover!, sourceId: m.sourceId, managerId: m.managerId),
                       ),
-                    ),
+                    )),
                     const SizedBox(width: 16),
                     Expanded(
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

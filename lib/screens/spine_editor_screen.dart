@@ -8,7 +8,9 @@ import '../widgets/spine.dart';
 
 class SpineEditorScreen extends StatefulWidget {
   final Book book;
-  const SpineEditorScreen({super.key, required this.book});
+  /// Salvataggio alternativo (per i dorsi dei manga).
+  final void Function(Book)? onSave;
+  const SpineEditorScreen({super.key, required this.book, this.onSave});
   @override
   State<SpineEditorScreen> createState() => _SpineEditorScreenState();
 }
@@ -37,7 +39,11 @@ class _SpineEditorScreenState extends State<SpineEditorScreen> {
       ..spineColor = bg
       ..spineTextColor = tx;
     if (_title.text.trim().isNotEmpty) b.title = _title.text.trim();
-    LibraryStore.I.updateBook(b);
+    if (widget.onSave != null) {
+      widget.onSave!(b);
+    } else {
+      LibraryStore.I.updateBook(b);
+    }
     Navigator.pop(context);
   }
 
