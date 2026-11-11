@@ -116,7 +116,7 @@ class WikiEntry {
 class WikiRelation {
   final String a, b, label;
   final int pos;
-  final String kind; // famiglia | amore | amicizia | alleanza | rivalità | altro
+  final String kind; // famiglia | amore | amicizia | alleanza | rivalità | speciale (gruppo)
   WikiRelation(this.a, this.b, this.label, this.pos, [String? kind]) : kind = kind ?? guessKind(label);
 
   /// Legami stretti: vanno nella costellazione.
@@ -129,14 +129,19 @@ class WikiRelation {
       return 'famiglia';
     }
     if (any(['amant', 'fidanzat', 'innamorat', 'amore', 'sposa', 'promess', 'cotta'])) return 'amore';
-    if (any(['amic'])) return 'amicizia';
+    if (any(['amic', 'conoscent', 'compagno di giochi'])) return 'amicizia';
     if (any(['rival', 'nemic', 'avversar', 'antagonist', 'odia'])) return 'rivalità';
     if (any(['allea', 'compagn', 'mentore', 'maestr', 'allievo', 'allieva', 'discepol', 'protett', 'servitor', 'guardia', 'alleat', 'collega', 'contratto', 'legame'])) return 'alleanza';
-    return 'altro';
+    return 'alleanza';
   }
 
+  static const kinds = ['famiglia', 'amicizia', 'amore', 'rivalità', 'alleanza'];
+
   Map<String, dynamic> toJson() => {'a': a, 'b': b, 'l': label, 'p': pos, 'k': kind};
-  factory WikiRelation.fromJson(Map j) => WikiRelation(j['a'] as String, j['b'] as String, j['l'] as String, j['p'] as int, j['k'] as String?);
+  factory WikiRelation.fromJson(Map j) {
+    final k = j['k'] as String?;
+    return WikiRelation(j['a'] as String, j['b'] as String, j['l'] as String, j['p'] as int, k == 'altro' ? null : k);
+  }
 }
 
 class Wiki {
@@ -144,6 +149,8 @@ class Wiki {
   final String title;
   final Map<String, WikiEntry> entries = {};
   final List<WikiRelation> relations = [];
+  /// Appartenenza a gruppi (squadre, gilde, casate…): a = id del personaggio, b = nome del gruppo.
+  final List<WikiRelation> groups = [];
   final Set<String> processed = {}; // "idLibro:capitolo"
   final Map<String, String> summaries = {}; // "idLibro:capitolo" → riassunto
   final Set<String> pendingRewrite = {}; // voci con novità da integrare nella scheda completa
@@ -207,6 +214,10 @@ class Wiki {
       }
     }
     relations.removeWhere((r) => r.a == r.b);
+    for (var i = 0; i < groups.length; i++) {
+      final g = groups[i];
+      if (g.a == from.id) groups[i] = WikiRelation(into.id, g.b, g.label, g.pos, 'speciale');
+    }
   }
 
   /// Unisce automaticamente i doppioni evidenti dello stesso tipo.
@@ -238,11 +249,37 @@ class Wiki {
 
   List<WikiRelation> relationsAt(int limit) => relations.where((r) => r.pos <= limit).toList();
 
+  /// Gruppi visibili fino a [limit]: nome → membri. Oltre a quelli indicati da Gemini,
+  /// riconosce i gruppi citati nei ruoli dei personaggi (es. "mago dei Twin Horns").
+  Map<String, Set<String>> groupsAt(int limit) {
+    final out = <String, Set<String>>{};
+    for (final g in groups.where((g) => g.pos <= limit)) {
+      if (entries[g.a] == null) continue;
+      out.putIfAbsent(g.b, () => {}).add(g.a);
+    }
+    final chars = entries.values.where((e) => e.type == 'personaggio').toList();
+    for (final t in entries.values.where((e) => e.type != 'personaggio' && e.name.length >= 4)) {
+      if (t.notesAt(limit).isEmpty && !t.manual) continue;
+      final names = [t.name, ...t.aliases.where((a) => a.length >= 4)].map((n) => n.toLowerCase()).toList();
+      final members = <String>{};
+      for (final c in chars) {
+        final role = c.roleAt(limit).toLowerCase();
+        if (role.isNotEmpty && names.any(role.contains)) members.add(c.id);
+      }
+      if (members.length < 2) continue;
+      final key = out.keys.firstWhere((k) => names.contains(k.toLowerCase()), orElse: () => t.name);
+      out.putIfAbsent(key, () => {}).addAll(members);
+    }
+    out.removeWhere((_, m) => m.length < 2);
+    return out;
+  }
+
   Map<String, dynamic> toJson() => {
         'key': key,
         'title': title,
         'entries': entries.values.map((e) => e.toJson()).toList(),
         'relations': relations.map((r) => r.toJson()).toList(),
+        'groups': groups.map((r) => r.toJson()).toList(),
         'processed': processed.toList(),
         'summaries': summaries,
         'pending': pendingRewrite.toList(),
@@ -255,6 +292,7 @@ class Wiki {
       w.entries[x.id] = x;
     }
     w.relations.addAll((j['relations'] as List? ?? []).map((r) => WikiRelation.fromJson(r as Map)));
+    w.groups.addAll((j['groups'] as List? ?? []).map((r) => WikiRelation.fromJson(r as Map)));
     w.processed.addAll((j['processed'] as List? ?? []).cast<String>());
     w.summaries.addAll(Map<String, String>.from((j['summaries'] as Map?) ?? {}));
     w.pendingRewrite.addAll((j['pending'] as List? ?? []).cast<String>());
@@ -423,7 +461,7 @@ class WikiStore extends ChangeNotifier {
         .join('\n');
     final prompt = '''
 Sei l'archivista della wiki di un lettore. Leggi il capitolo qui sotto (dal libro «${b.title}», capitolo «${b.chapters[chapter].title}») e rispondi SOLO con JSON in questo formato:
-{"summary": "...", "entries": [{"id": "...", "name": "...", "aliases": ["..."], "type": "personaggio|luogo|termine", "role": "...", "note": "..."}], "relations": [{"a": "...", "b": "...", "label": "...", "kind": "famiglia|amore|amicizia|alleanza|rivalità|altro"}]}
+{"summary": "...", "entries": [{"id": "...", "name": "...", "aliases": ["..."], "type": "personaggio|luogo|termine", "role": "...", "note": "..."}], "relations": [{"a": "...", "b": "...", "label": "...", "kind": "famiglia|amicizia|amore|rivalità|alleanza"}], "groups": [{"name": "...", "members": ["..."]}]}
 
 VOCI GIÀ NELLA WIKI (id | nome (altri nomi) | tipo):
 ${known.isEmpty ? '(nessuna)' : known}
@@ -435,7 +473,8 @@ Regole:
 - "name": il nome più completo usato nel testo; "aliases": soprannomi, nomi brevi o titoli usati nel testo.
 - "role": massimo 6 parole (es. "protagonista, ex re reincarnato").
 - "note": tutto ciò che si scopre di nuovo su quella voce in questo capitolo, in italiano, in modo dettagliato (fino a 5 frasi).
-- "relations": legami tra personaggi emersi in questo capitolo (label breve, es. "madre di", "alleato di"). In "a" e "b" usa l'id se esiste, altrimenti il nome. "kind" è il tipo di legame.
+- "relations": TUTTI i legami tra personaggi emersi in questo capitolo, tra qualsiasi coppia e non solo con il protagonista (label breve letta come "a <label> b", es. "madre di", "alleato di"). In "a" e "b" usa l'id se esiste, altrimenti il nome. "kind" è uno tra famiglia, amicizia, amore, rivalità, alleanza. Una sola relazione per coppia: non ripetere quella inversa (se c'è "madre di" non aggiungere "figlio di").
+- "groups": gruppi di cui fanno parte i personaggi in questo capitolo (squadre di avventurieri, gilde, casate, ordini, eserciti, classi…), con il nome del gruppo e gli id (o i nomi) dei membri.
 - "summary": 2 frasi in italiano su cosa succede nel capitolo.
 
 CAPITOLO:
@@ -495,8 +534,21 @@ $clipped''';
         if (a == null || c == null || a.id == c.id || label.isEmpty) continue;
         final dup = w.relations.any((x) => ((x.a == a.id && x.b == c.id) || (x.a == c.id && x.b == a.id)) && x.label == label);
         var kind = (r['kind'] as String?)?.toLowerCase().trim();
-        if (!const ['famiglia', 'amore', 'amicizia', 'alleanza', 'rivalità', 'altro'].contains(kind)) kind = null;
-        if (!dup) w.relations.add(WikiRelation(a.id, c.id, label, pos, kind));
+        if (!WikiRelation.kinds.contains(kind)) kind = null;
+        final inverse = w.relations.any((x) => x.a == c.id && x.b == a.id);
+        if (!dup && !inverse) w.relations.add(WikiRelation(a.id, c.id, label, pos, kind));
+      }
+      for (final g in (data['groups'] as List? ?? const [])) {
+        if (g is! Map) continue;
+        var name = (g['name'] as String?)?.trim() ?? '';
+        if (name.isEmpty) continue;
+        name = w.find(name)?.name ?? name;
+        for (final m in (g['members'] as List? ?? const [])) {
+          final e = m is String ? byRef(m) : null;
+          if (e == null || e.type != 'personaggio') continue;
+          if (w.groups.any((x) => x.a == e.id && x.b.toLowerCase() == name.toLowerCase())) continue;
+          w.groups.add(WikiRelation(e.id, name, name, pos, 'speciale'));
+        }
       }
       w.mergeDuplicates();
       w.pendingRewrite.addAll(touched);
@@ -570,6 +622,7 @@ $items''';
       ..clear()
       ..addEntries(keep.entries.where((k) => !k.key.startsWith('__')));
     w.relations.clear();
+    w.groups.clear();
     w.processed.clear();
     w.summaries.clear();
     w.pendingRewrite.clear();
@@ -630,6 +683,7 @@ $items''';
     final w = await forBook(b);
     w.entries.remove(e.id);
     w.relations.removeWhere((r) => r.a == e.id || r.b == e.id);
+    w.groups.removeWhere((r) => r.a == e.id);
     await save(w);
   }
 
