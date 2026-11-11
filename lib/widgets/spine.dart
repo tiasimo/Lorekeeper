@@ -9,6 +9,7 @@ class SpineView extends StatelessWidget {
   final String title;
   final Color color;
   final Color textColor;
+  final Color? titleColor; // nomi sul dorso (se diverso dagli ornamenti)
   final String style;
   final double heightScale;
   final double widthScale;
@@ -23,6 +24,7 @@ class SpineView extends StatelessWidget {
     required this.title,
     required this.color,
     required this.textColor,
+    this.titleColor,
     required this.style,
     this.heightScale = 1,
     this.widthScale = 1,
@@ -44,6 +46,7 @@ class SpineView extends StatelessWidget {
       title: b.title,
       color: Color(b.spineColor),
       textColor: Color(b.spineTextColor),
+      titleColor: b.spineTitleColor == null ? null : Color(b.spineTitleColor!),
       style: b.spineStyle,
       heightScale: b.spineHeight,
       widthScale: b.spineWidth,
@@ -79,6 +82,24 @@ class SpineView extends StatelessWidget {
         top = [diamond, const SizedBox(height: 4), diamond];
         bottom = [diamond, const SizedBox(height: 4), diamond];
         break;
+      case 'Dorato':
+        top = [SizedBox(height: w * 0.1), diamond];
+        bottom = [diamond, SizedBox(height: w * 0.1)];
+        break;
+      case 'Art déco':
+        final deco = SizedBox(width: w * 0.7, height: w * 0.42, child: CustomPaint(painter: _DecoPainter(textColor)));
+        top = [deco];
+        bottom = [RotatedBox(quarterTurns: 2, child: deco)];
+        break;
+      case 'Manga':
+        bottom = [
+          Container(
+            width: w * 0.62,
+            height: w * 0.62,
+            decoration: BoxDecoration(color: textColor, borderRadius: BorderRadius.circular(w * 0.08)),
+          ),
+        ];
+        break;
       default:
         break;
     }
@@ -98,6 +119,7 @@ class SpineView extends StatelessWidget {
     );
     final showAuthor = author != null && baseHeight >= 150 && h > 160;
 
+    final tc = titleColor ?? textColor;
     // Effetto "oro a caldo": riflesso che attraversa le lettere.
     Widget foil(Widget child) => ShaderMask(
           blendMode: BlendMode.srcIn,
@@ -105,11 +127,11 @@ class SpineView extends StatelessWidget {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              Color.lerp(textColor, Colors.black, 0.18)!,
-              Color.lerp(textColor, Colors.white, 0.45)!,
-              textColor,
-              Color.lerp(textColor, Colors.black, 0.12)!,
-              Color.lerp(textColor, Colors.white, 0.3)!,
+              Color.lerp(tc, Colors.black, 0.18)!,
+              Color.lerp(tc, Colors.white, 0.45)!,
+              tc,
+              Color.lerp(tc, Colors.black, 0.12)!,
+              Color.lerp(tc, Colors.white, 0.3)!,
             ],
             stops: const [0, 0.3, 0.5, 0.75, 1],
           ).createShader(r),
@@ -140,6 +162,25 @@ class SpineView extends StatelessWidget {
                 decoration: BoxDecoration(border: Border.all(color: textColor.withValues(alpha: 0.8), width: 1)),
               ),
             ),
+          if (style == 'Dorato')
+            Positioned.fill(
+              child: Container(
+                margin: const EdgeInsets.all(2.5),
+                decoration: BoxDecoration(border: Border.all(color: textColor, width: 1.4)),
+                child: Container(margin: const EdgeInsets.all(2.5), decoration: BoxDecoration(border: Border.all(color: textColor.withValues(alpha: 0.6), width: 0.6))),
+              ),
+            ),
+          if (style == 'Fasce') ...[
+            Positioned(left: 0, right: 0, top: w * 0.22, child: Container(height: w * 0.42, color: textColor)),
+            Positioned(left: 0, right: 0, bottom: w * 0.22, child: Container(height: w * 0.42, color: textColor)),
+            Positioned(left: 0, right: 0, top: w * 0.72, child: Container(height: 1.5, color: textColor)),
+            Positioned(left: 0, right: 0, bottom: w * 0.72, child: Container(height: 1.5, color: textColor)),
+          ],
+          if (style == 'Tela') Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: _ClothPainter(dark)))),
+          if (style == 'Moderno')
+            Positioned(left: 0, right: 0, bottom: 0, height: w * 0.5, child: Container(color: textColor.withValues(alpha: 0.92))),
+          if (style == 'Manga')
+            Positioned(left: 0, right: 0, top: 0, height: w * 0.5, child: Container(color: textColor.withValues(alpha: 0.9))),
           Padding(
             padding: EdgeInsets.symmetric(vertical: w * 0.32),
             child: Column(
@@ -175,6 +216,54 @@ class SpineView extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Ventaglio Art déco.
+class _DecoPainter extends CustomPainter {
+  final Color color;
+  _DecoPainter(this.color);
+  @override
+  void paint(Canvas c, Size s) {
+    final p = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    for (var i = 0; i < 3; i++) {
+      final inset = i * s.width * 0.14;
+      c.drawPath(
+          Path()
+            ..moveTo(inset, s.height)
+            ..lineTo(s.width / 2, inset * 0.8)
+            ..lineTo(s.width - inset, s.height),
+          p);
+    }
+    c.drawLine(Offset(0, s.height), Offset(s.width, s.height), p);
+  }
+
+  @override
+  bool shouldRepaint(_DecoPainter old) => old.color != color;
+}
+
+/// Trama della tela.
+class _ClothPainter extends CustomPainter {
+  final Color color;
+  _ClothPainter(this.color);
+  @override
+  void paint(Canvas c, Size s) {
+    final p = Paint()
+      ..color = color.withValues(alpha: 0.22)
+      ..strokeWidth = 0.6;
+    for (double y = 0; y < s.height; y += 2.4) {
+      c.drawLine(Offset(0, y), Offset(s.width, y), p);
+    }
+    p.color = Colors.white.withValues(alpha: 0.06);
+    for (double x = 0; x < s.width; x += 2.4) {
+      c.drawLine(Offset(x, 0), Offset(x, s.height), p);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ClothPainter old) => old.color != color;
 }
 
 class _WearPainter extends CustomPainter {

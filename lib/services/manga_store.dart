@@ -43,6 +43,7 @@ class SavedManga {
   int? spineColor, spineTextColor, coverSpineColor, coverSpineTextColor;
   String spinePalette = 'cover', spineStyle = 'Tomo';
   double spineHeight = 1.0, spineWidth = 1.0;
+  int? spineTitleColor;
   int newChapters = 0; // trovati all'ultimo aggiornamento
   String? lastChapter; // url
   int lastPage;
@@ -146,6 +147,7 @@ class SavedManga {
       ..spineStyle = spineStyle
       ..spineHeight = spineHeight
       ..spineWidth = spineWidth
+      ..spineTitleColor = spineTitleColor
       ..lastReadAt = lastReadAt;
     return b;
   }
@@ -157,6 +159,7 @@ class SavedManga {
     spineStyle = b.spineStyle;
     spineHeight = b.spineHeight;
     spineWidth = b.spineWidth;
+    spineTitleColor = b.spineTitleColor;
     if (b.title.trim().isNotEmpty) title = b.title.trim();
   }
 
@@ -191,6 +194,7 @@ class SavedManga {
         'ss': spineStyle,
         'sh': spineHeight,
         'sw': spineWidth,
+        'stit': spineTitleColor,
         'new': newChapters,
       };
 
@@ -226,6 +230,7 @@ class SavedManga {
         ..spineStyle = (j['ss'] as String?) ?? 'Tomo'
         ..spineHeight = ((j['sh'] as num?) ?? 1).toDouble()
         ..spineWidth = ((j['sw'] as num?) ?? 1).toDouble()
+        ..spineTitleColor = j['stit'] as int?
         ..newChapters = (j['new'] as int?) ?? 0;
 
   /// Numero del capitolo per AniList (che conta i capitoli letti).

@@ -18,6 +18,7 @@ import 'spine_editor_screen.dart';
 import 'manga/manga_home.dart';
 import '../services/manga_store.dart';
 import 'stats_screen.dart';
+import '../widgets/shelf_backdrop.dart';
 import '../services/home_widget_sync.dart';
 import '../services/updater.dart';
 import '../widgets/update_dialog.dart';
@@ -269,6 +270,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         builder: (context, _) {
           final last = store.lastRead;
           return Stack(children: [
+            Positioned.fill(child: ShelfBackdrop(store.app.shelfBg)),
             SafeArea(
               child: ListView(
                 padding: const EdgeInsets.only(bottom: 120),

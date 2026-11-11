@@ -9,6 +9,8 @@ import '../services/secrets.dart';
 import '../services/updater.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/shelf_backdrop.dart';
+import '../widgets/spine.dart';
 import '../widgets/update_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -105,6 +107,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     },
                   ),
                 );
+              },
+            ),
+            const SizedBox(height: 22),
+            const SectionLabel('Sfondo degli scaffali'),
+            ListenableBuilder(
+              listenable: LibraryStore.I,
+              builder: (context, _) {
+                final app = LibraryStore.I.app;
+                Widget picker(String label, String current, ValueChanged<String> on) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Padding(padding: const EdgeInsets.only(bottom: 6), child: Text(label, style: LK.body(14))),
+                      SizedBox(
+                        height: 116,
+                        child: ListView(scrollDirection: Axis.horizontal, children: [
+                          for (final k in shelfBackdrops)
+                            GestureDetector(
+                              onTap: () => on(k),
+                              child: Container(
+                                width: 72,
+                                margin: const EdgeInsets.only(right: 8),
+                                child: Column(children: [
+                                  Container(
+                                    height: 86,
+                                    clipBehavior: Clip.antiAlias,
+                                    decoration: BoxDecoration(
+                                      color: LK.paper,
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: current == k ? LK.accent : LK.border, width: current == k ? 2.5 : 1),
+                                    ),
+                                    child: Stack(children: [
+                                      ShelfBackdrop(k),
+                                      const Positioned(left: 6, right: 6, bottom: 14, child: ShelfBoard()),
+                                    ]),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(k, maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.body(11)),
+                                ]),
+                              ),
+                            ),
+                        ]),
+                      ),
+                    ]);
+                return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  picker('Novel', app.shelfBg, (k) {
+                    app.shelfBg = k;
+                    LibraryStore.I.saveAppPrefs();
+                  }),
+                  const SizedBox(height: 10),
+                  picker('Manga', app.mangaShelfBg, (k) {
+                    app.mangaShelfBg = k;
+                    LibraryStore.I.saveAppPrefs();
+                  }),
+                ]);
               },
             ),
             const SizedBox(height: 26),

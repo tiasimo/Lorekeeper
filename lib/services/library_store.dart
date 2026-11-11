@@ -77,11 +77,15 @@ class AppPrefs {
   String shelfSort = 'Manuale'; // Manuale | Serie | Titolo | Ultimo letto
   String shelfFilter = 'Tutti'; // Tutti | In corso | Da leggere | Finiti
   String dividers = 'Scelti da me'; // Scelti da me | Automatici
+  String shelfBg = 'Carta'; // sfondo degli scaffali delle novel
+  String mangaShelfBg = 'Carta'; // sfondo degli scaffali dei manga
 
   Map<String, dynamic> toJson() => {
         'goalMinutes': goalMinutes, 'reminder': reminder, 'reminderHour': reminderHour, 'reminderMinute': reminderMinute,
         'spoiler': spoiler, 'language': language, 'geminiModel': geminiModel, 'shelfSort': shelfSort, 'shelfFilter': shelfFilter,
         'dividers': dividers,
+        'shelfBg': shelfBg,
+        'mangaShelfBg': mangaShelfBg,
       };
 
   void fromJson(Map<String, dynamic> j) {
@@ -96,6 +100,8 @@ class AppPrefs {
     shelfSort = v('shelfSort', shelfSort);
     shelfFilter = v('shelfFilter', shelfFilter);
     dividers = v('dividers', dividers);
+    shelfBg = v('shelfBg', shelfBg);
+    mangaShelfBg = v('mangaShelfBg', mangaShelfBg);
   }
 }
 

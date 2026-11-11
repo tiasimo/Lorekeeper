@@ -7,6 +7,8 @@ import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/manga_image.dart';
 import '../../widgets/spine.dart';
+import '../../widgets/shelf_backdrop.dart';
+import '../../services/library_store.dart';
 import '../spine_editor_screen.dart';
 import 'anilist_ui.dart';
 import 'manga_detail.dart';
@@ -44,7 +46,9 @@ class _MangaHomeState extends State<MangaHome> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: TabletSafeArea(
+      body: Stack(children: [
+        if (_tab == 0) Positioned.fill(child: ShelfBackdrop(LibraryStore.I.app.mangaShelfBg)),
+        TabletSafeArea(
         child: Column(children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
@@ -92,6 +96,7 @@ class _MangaHomeState extends State<MangaHome> {
           ),
         ]),
       ),
+      ]),
     );
   }
 }
@@ -231,16 +236,22 @@ class _LibraryTab extends StatelessWidget {
         if (badge > 0)
           Positioned(
             top: -8,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              constraints: const BoxConstraints(minWidth: 22),
-              decoration: BoxDecoration(
-                color: m.newChapters > 0 ? LK.accent : const Color(0xFF3A6E8E),
-                borderRadius: BorderRadius.circular(9),
-                boxShadow: const [BoxShadow(color: Color(0x55000000), blurRadius: 4, offset: Offset(0, 2))],
-              ),
-              child: Text(badge > 999 ? '999+' : '$badge', textAlign: TextAlign.center, style: LK.label(9.5, color: Colors.white, spacing: 0.2)),
-            ),
+            child: Builder(builder: (context) {
+              // il numero prende i colori del dorso
+              final bg = Color(b.spineTitleColor ?? b.spineTextColor);
+              final fg = Color(b.spineColor);
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                constraints: const BoxConstraints(minWidth: 22),
+                decoration: BoxDecoration(
+                  color: bg,
+                  borderRadius: BorderRadius.circular(9),
+                  border: Border.all(color: m.newChapters > 0 ? fg : bg, width: 1.5),
+                  boxShadow: const [BoxShadow(color: Color(0x55000000), blurRadius: 4, offset: Offset(0, 2))],
+                ),
+                child: Text(badge > 999 ? '999+' : '$badge', textAlign: TextAlign.center, style: LK.label(9.5, color: fg, spacing: 0.2)),
+              );
+            }),
           ),
       ]),
     );
