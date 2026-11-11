@@ -266,6 +266,32 @@ class ShelfBoard extends StatelessWidget {
   }
 }
 
+/// Fianco verticale dello scaffale: i libri ci scorrono dietro.
+class ShelfSide extends StatelessWidget {
+  static const double width = 13;
+  final Wood wood;
+  final bool right;
+  const ShelfSide({super.key, required this.wood, this.right = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      decoration: BoxDecoration(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(3), bottom: Radius.circular(2)),
+        boxShadow: [
+          BoxShadow(color: wood.dark, offset: Offset(right ? -2 : 2, 0)),
+          BoxShadow(color: const Color(0x33000000), blurRadius: 8, offset: Offset(right ? -4 : 4, 4)),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(3), bottom: Radius.circular(2)),
+        child: RotatedBox(quarterTurns: right ? 3 : 1, child: CustomPaint(painter: _GrainPainter(wood), child: const SizedBox.expand())),
+      ),
+    );
+  }
+}
+
 class _GrainPainter extends CustomPainter {
   final Wood wood;
   _GrainPainter(this.wood);

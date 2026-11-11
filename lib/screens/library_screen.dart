@@ -394,12 +394,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final books = entries.where((e) => e.startsWith('b:')).length;
     if (auto && books > 0) entries.add('d:${DividerArt.all[key.hashCode.abs() % DividerArt.all.length].id}');
     if (books <= 3) entries.add('o:${_decor[(key.hashCode ~/ 7).abs() % _decor.length]}');
-    return Column(children: [
-      SizedBox(
-        height: 240,
-        child: ListView.separated(
+    final wood = Wood.forKey(key);
+    final list = ListView.separated(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 24),
+          padding: const EdgeInsets.symmetric(horizontal: 10),
           itemCount: entries.length + (addButton ? 1 : 0),
           separatorBuilder: (_, __) => const SizedBox(width: 8),
           itemBuilder: (context, i) {
@@ -446,10 +444,37 @@ class _LibraryScreenState extends State<LibraryScreen> {
               ),
             );
           },
-        ),
-      ),
-      Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: ShelfBoard(wood: Wood.forKey(key))),
-    ]);
+        );
+    // I libri scorrono tra due fianchi di legno e spariscono dietro di essi.
+    Widget shade(Alignment from) => IgnorePointer(
+          child: Container(
+            width: 22,
+            decoration: BoxDecoration(gradient: LinearGradient(begin: from, end: -from, colors: const [Color(0x47000000), Color(0x00000000)])),
+          ),
+        );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Stack(clipBehavior: Clip.none, children: [
+        Column(children: [
+          SizedBox(
+            height: 240,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: ShelfSide.width - 1),
+              child: ClipRect(
+                child: Stack(children: [
+                  Positioned.fill(child: list),
+                  Positioned(left: 0, top: 0, bottom: 0, child: shade(Alignment.centerLeft)),
+                  Positioned(right: 0, top: 0, bottom: 0, child: shade(Alignment.centerRight)),
+                ]),
+              ),
+            ),
+          ),
+          ShelfBoard(wood: wood),
+        ]),
+        Positioned(left: 0, top: 6, bottom: -5, child: ShelfSide(wood: wood)),
+        Positioned(right: 0, top: 6, bottom: -5, child: ShelfSide(wood: wood, right: true)),
+      ]),
+    );
   }
 
   Widget _shelf() {

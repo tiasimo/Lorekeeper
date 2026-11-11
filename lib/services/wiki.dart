@@ -70,6 +70,15 @@ class WikiEntry {
     return d.isEmpty ? '' : d.last.text;
   }
 
+  /// Posizione dell'ultima scheda completa visibile (per mostrare le novità successive).
+  int descriptionPosAt(int limit) {
+    var p = -1;
+    for (final d in descriptions) {
+      if (d.pos <= limit && d.pos > p) p = d.pos;
+    }
+    return p;
+  }
+
   WikiNote? get first {
     if (notes.isEmpty) return null;
     return (notes.toList()..sort((a, b) => a.pos.compareTo(b.pos))).first;
@@ -107,9 +116,27 @@ class WikiEntry {
 class WikiRelation {
   final String a, b, label;
   final int pos;
-  const WikiRelation(this.a, this.b, this.label, this.pos);
-  Map<String, dynamic> toJson() => {'a': a, 'b': b, 'l': label, 'p': pos};
-  factory WikiRelation.fromJson(Map j) => WikiRelation(j['a'] as String, j['b'] as String, j['l'] as String, j['p'] as int);
+  final String kind; // famiglia | amore | amicizia | alleanza | rivalità | altro
+  WikiRelation(this.a, this.b, this.label, this.pos, [String? kind]) : kind = kind ?? guessKind(label);
+
+  /// Legami stretti: vanno nella costellazione.
+  bool get close => kind == 'famiglia' || kind == 'amore' || kind == 'amicizia';
+
+  static String guessKind(String label) {
+    final l = label.toLowerCase();
+    bool any(List<String> ws) => ws.any(l.contains);
+    if (any(['madre', 'padre', 'figli', 'fratell', 'sorell', 'moglie', 'marit', 'coniug', 'zio', 'zia', 'nonn', 'cugin', 'nipot', 'genitor', 'famiglia', 'parente', 'gemell'])) {
+      return 'famiglia';
+    }
+    if (any(['amant', 'fidanzat', 'innamorat', 'amore', 'sposa', 'promess', 'cotta'])) return 'amore';
+    if (any(['amic'])) return 'amicizia';
+    if (any(['rival', 'nemic', 'avversar', 'antagonist', 'odia'])) return 'rivalità';
+    if (any(['allea', 'compagn', 'mentore', 'maestr', 'allievo', 'allieva', 'discepol', 'protett', 'servitor', 'guardia', 'alleat', 'collega', 'contratto', 'legame'])) return 'alleanza';
+    return 'altro';
+  }
+
+  Map<String, dynamic> toJson() => {'a': a, 'b': b, 'l': label, 'p': pos, 'k': kind};
+  factory WikiRelation.fromJson(Map j) => WikiRelation(j['a'] as String, j['b'] as String, j['l'] as String, j['p'] as int, j['k'] as String?);
 }
 
 class Wiki {
@@ -119,6 +146,7 @@ class Wiki {
   final List<WikiRelation> relations = [];
   final Set<String> processed = {}; // "idLibro:capitolo"
   final Map<String, String> summaries = {}; // "idLibro:capitolo" → riassunto
+  final Set<String> pendingRewrite = {}; // voci con novità da integrare nella scheda completa
 
   Wiki(this.key, this.title);
 
@@ -175,7 +203,7 @@ class Wiki {
     for (var i = 0; i < relations.length; i++) {
       final r = relations[i];
       if (r.a == from.id || r.b == from.id) {
-        relations[i] = WikiRelation(r.a == from.id ? into.id : r.a, r.b == from.id ? into.id : r.b, r.label, r.pos);
+        relations[i] = WikiRelation(r.a == from.id ? into.id : r.a, r.b == from.id ? into.id : r.b, r.label, r.pos, r.kind);
       }
     }
     relations.removeWhere((r) => r.a == r.b);
@@ -217,6 +245,7 @@ class Wiki {
         'relations': relations.map((r) => r.toJson()).toList(),
         'processed': processed.toList(),
         'summaries': summaries,
+        'pending': pendingRewrite.toList(),
       };
 
   factory Wiki.fromJson(Map j) {
@@ -228,6 +257,7 @@ class Wiki {
     w.relations.addAll((j['relations'] as List? ?? []).map((r) => WikiRelation.fromJson(r as Map)));
     w.processed.addAll((j['processed'] as List? ?? []).cast<String>());
     w.summaries.addAll(Map<String, String>.from((j['summaries'] as Map?) ?? {}));
+    w.pendingRewrite.addAll((j['pending'] as List? ?? []).cast<String>());
     return w;
   }
 }
@@ -393,7 +423,7 @@ class WikiStore extends ChangeNotifier {
         .join('\n');
     final prompt = '''
 Sei l'archivista della wiki di un lettore. Leggi il capitolo qui sotto (dal libro «${b.title}», capitolo «${b.chapters[chapter].title}») e rispondi SOLO con JSON in questo formato:
-{"summary": "...", "entries": [{"id": "...", "name": "...", "aliases": ["..."], "type": "personaggio|luogo|termine", "role": "...", "note": "..."}], "relations": [{"a": "...", "b": "...", "label": "..."}]}
+{"summary": "...", "entries": [{"id": "...", "name": "...", "aliases": ["..."], "type": "personaggio|luogo|termine", "role": "...", "note": "..."}], "relations": [{"a": "...", "b": "...", "label": "...", "kind": "famiglia|amore|amicizia|alleanza|rivalità|altro"}]}
 
 VOCI GIÀ NELLA WIKI (id | nome (altri nomi) | tipo):
 ${known.isEmpty ? '(nessuna)' : known}
@@ -405,7 +435,7 @@ Regole:
 - "name": il nome più completo usato nel testo; "aliases": soprannomi, nomi brevi o titoli usati nel testo.
 - "role": massimo 6 parole (es. "protagonista, ex re reincarnato").
 - "note": tutto ciò che si scopre di nuovo su quella voce in questo capitolo, in italiano, in modo dettagliato (fino a 5 frasi).
-- "relations": legami tra personaggi emersi in questo capitolo (label breve, es. "madre di", "alleato di"). In "a" e "b" usa l'id se esiste, altrimenti il nome.
+- "relations": legami tra personaggi emersi in questo capitolo (label breve, es. "madre di", "alleato di"). In "a" e "b" usa l'id se esiste, altrimenti il nome. "kind" è il tipo di legame.
 - "summary": 2 frasi in italiano su cosa succede nel capitolo.
 
 CAPITOLO:
@@ -464,11 +494,18 @@ $clipped''';
         final label = (r['label'] as String?)?.trim() ?? '';
         if (a == null || c == null || a.id == c.id || label.isEmpty) continue;
         final dup = w.relations.any((x) => ((x.a == a.id && x.b == c.id) || (x.a == c.id && x.b == a.id)) && x.label == label);
-        if (!dup) w.relations.add(WikiRelation(a.id, c.id, label, pos));
+        var kind = (r['kind'] as String?)?.toLowerCase().trim();
+        if (!const ['famiglia', 'amore', 'amicizia', 'alleanza', 'rivalità', 'altro'].contains(kind)) kind = null;
+        if (!dup) w.relations.add(WikiRelation(a.id, c.id, label, pos, kind));
       }
       w.mergeDuplicates();
-      touched.removeWhere((id) => !w.entries.containsKey(id));
-      await _rewrite(w, b, chapter, touched.toList());
+      w.pendingRewrite.addAll(touched);
+      w.pendingRewrite.removeWhere((id) => !w.entries.containsKey(id));
+      // La scheda completa si riscrive ogni 10 capitoli e alla fine del volume.
+      if ((chapter + 1) % 10 == 0 || chapter == b.chapters.length - 1) {
+        await _rewrite(w, b, chapter, w.pendingRewrite.toList());
+        w.pendingRewrite.clear();
+      }
     }
     w.processed.add('${b.id}:$chapter');
   }
@@ -483,16 +520,17 @@ $clipped''';
       for (final id in group) {
         final e = w.entries[id]!;
         final prev = e.descriptionAt(pos - 1);
-        final news = e.notes.where((n) => n.pos == pos).map((n) => n.text).join(' ');
-        final old = prev.isNotEmpty ? prev : e.notes.where((n) => n.pos < pos).map((n) => n.text).join(' ');
+        final since = e.descriptionPosAt(pos - 1);
+        final news = e.notes.where((n) => n.pos > since && n.pos <= pos).map((n) => n.text).join(' ');
+        final old = prev;
         items.writeln('### id: $id · ${e.name} (${e.type})');
         items.writeln('SCHEDA ATTUALE: ${old.isEmpty ? '(vuota)' : old}');
-        items.writeln('NOVITÀ DEL CAPITOLO: $news');
+        items.writeln('NOVITÀ DEGLI ULTIMI CAPITOLI: $news');
         items.writeln();
       }
       await _throttle();
       final prompt = '''
-Aggiorna le schede della wiki di un lettore del libro «${b.title}». Per ogni voce rileggi la SCHEDA ATTUALE e integra le NOVITÀ DEL CAPITOLO, riscrivendo una scheda completa e ordinata in italiano.
+Aggiorna le schede della wiki di un lettore del libro «${b.title}». Per ogni voce rileggi la SCHEDA ATTUALE e integra le NOVITÀ DEGLI ULTIMI CAPITOLI, riscrivendo una scheda completa e ordinata in italiano.
 - Mantieni tutte le informazioni già presenti, correggile se le novità le precisano, non perdere dettagli.
 - Organizza in paragrafi brevi (per i personaggi: chi è, aspetto e carattere, abilità, storia finora, legami; per luoghi e termini: cos'è, caratteristiche, cosa è successo lì o perché è importante).
 - Può essere lunga quanto serve (anche più paragrafi), ma senza ripetizioni.
@@ -534,6 +572,7 @@ $items''';
     w.relations.clear();
     w.processed.clear();
     w.summaries.clear();
+    w.pendingRewrite.clear();
     _kept[w.key] = {for (final k in keep.entries.where((k) => k.key.startsWith('__'))) k.key.substring(2): k.value};
     await save(w);
     await ensure(b, silent: false);

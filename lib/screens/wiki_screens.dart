@@ -459,9 +459,17 @@ class _EntryScreenState extends State<EntryScreen> {
             const SizedBox(height: 20),
             const SectionLabel('Descrizione'),
             if (e.manualText != null && e.manualText!.isNotEmpty) Padding(padding: const EdgeInsets.only(bottom: 10), child: Text(e.manualText!, style: LK.body(15, height: 1.6))),
-            if (e.descriptionAt(limit).isNotEmpty)
-              Text(e.descriptionAt(limit), style: LK.body(15.5, height: 1.65))
-            else if (notes.isEmpty && (e.manualText == null || e.manualText!.isEmpty))
+            if (e.descriptionAt(limit).isNotEmpty) ...[
+              Text(e.descriptionAt(limit), style: LK.body(15.5, height: 1.65)),
+              // Novità uscite dopo l'ultima riscrittura completa (avviene ogni 10 capitoli).
+              if (notes.any((n) => n.pos > e.descriptionPosAt(limit))) ...[
+                const SizedBox(height: 14),
+                Text('NOVITÀ RECENTI', style: LK.label(10, spacing: 1.4, color: LK.accent)),
+                const SizedBox(height: 6),
+                for (final n in notes.where((n) => n.pos > e.descriptionPosAt(limit)))
+                  Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(n.text, style: LK.body(15, height: 1.55))),
+              ],
+            ] else if (notes.isEmpty && (e.manualText == null || e.manualText!.isEmpty))
               Text('Ancora nessuna informazione fino al punto in cui sei.', style: LK.body(14, color: LK.muted, style: FontStyle.italic))
             else
               for (final n in notes) Padding(padding: const EdgeInsets.only(bottom: 10), child: Text(n.text, style: LK.body(15, height: 1.55))),
@@ -627,32 +635,30 @@ class GraphScreen extends StatefulWidget {
   State<GraphScreen> createState() => _GraphScreenState();
 }
 
+/// Colori dei tipi di legame (pagina "Tutti i legami").
+const _kindColors = <String, Color>{
+  'famiglia': Color(0xFF7A1E2E),
+  'amore': Color(0xFFB0456A),
+  'amicizia': Color(0xFF3E6B4A),
+  'alleanza': Color(0xFF2F4A6A),
+  'rivalità': Color(0xFFB0561E),
+  'altro': Color(0xFF6B4A2E),
+};
+
+class _GraphPage {
+  final Map<String, Offset> pos = {};
+  List<WikiRelation> rels = const [];
+  final tc = TransformationController();
+  Size? fittedFor;
+}
+
 class _GraphScreenState extends State<GraphScreen> {
   static const _area = 1400.0;
   Wiki? _w;
-  final Map<String, Offset> _pos = {};
-  List<WikiRelation> _rels = const [];
-  final _tc = TransformationController();
-  Size? _fittedFor;
-
-  /// Centra il grafo e lo adatta allo schermo.
-  void _fit(Size view) {
-    if (_pos.isEmpty || _fittedFor == view) return;
-    _fittedFor = view;
-    var minX = double.infinity, minY = double.infinity, maxX = -double.infinity, maxY = -double.infinity;
-    for (final p in _pos.values) {
-      minX = math.min(minX, p.dx);
-      minY = math.min(minY, p.dy);
-      maxX = math.max(maxX, p.dx);
-      maxY = math.max(maxY, p.dy);
-    }
-    final bw = (maxX - minX) + 160, bh = (maxY - minY) + 160;
-    final sc = math.min(1.4, math.min(view.width / bw, view.height / bh));
-    final cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-    _tc.value = Matrix4.identity()
-      ..translate(view.width / 2 - cx * sc, view.height / 2 - cy * sc)
-      ..scale(sc);
-  }
+  int _page = 0;
+  final _sky = _GraphPage(), _all = _GraphPage();
+  final Map<String, int> _mentions = {};
+  String? _selected;
 
   @override
   void initState() {
@@ -660,17 +666,42 @@ class _GraphScreenState extends State<GraphScreen> {
     WikiStore.I.forBook(widget.book).then((w) {
       if (!mounted) return;
       _w = w;
-      _layout();
+      final limit = WikiStore.I.limitFor(widget.book);
+      final rels = w.relationsAt(limit).where((r) => w.entries[r.a] != null && w.entries[r.b] != null).toList();
+      for (final e in w.entries.values) {
+        _mentions[e.id] = e.notesAt(limit).map((n) => '${n.bookId}:${n.chapter}').toSet().length;
+      }
+      _sky.rels = rels.where((r) => r.close).toList();
+      _all.rels = rels;
+      _layout(_sky);
+      _layout(_all);
+      if (_sky.pos.isEmpty && _all.pos.isNotEmpty) _page = 1;
       setState(() {});
     });
   }
 
+  /// Centra il grafo e lo adatta allo schermo.
+  void _fit(_GraphPage g, Size view) {
+    if (g.pos.isEmpty || g.fittedFor == view) return;
+    g.fittedFor = view;
+    var minX = double.infinity, minY = double.infinity, maxX = -double.infinity, maxY = -double.infinity;
+    for (final p in g.pos.values) {
+      minX = math.min(minX, p.dx);
+      minY = math.min(minY, p.dy);
+      maxX = math.max(maxX, p.dx);
+      maxY = math.max(maxY, p.dy);
+    }
+    final bw = (maxX - minX) + 180, bh = (maxY - minY) + 200;
+    final sc = math.min(1.4, math.min(view.width / bw, view.height / bh));
+    final cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+    g.tc.value = Matrix4.identity()
+      ..translate(view.width / 2 - cx * sc, view.height / 2 - cy * sc)
+      ..scale(sc);
+  }
+
   /// Disposizione a molle (Fruchterman–Reingold).
-  void _layout() {
-    final w = _w!;
-    final limit = WikiStore.I.limitFor(widget.book);
-    _rels = w.relationsAt(limit);
-    final ids = <String>{for (final r in _rels) ...[r.a, r.b]}.where((id) => w.entries[id] != null).toList();
+  void _layout(_GraphPage g) {
+    final ids = <String>{for (final r in g.rels) ...[r.a, r.b]}.toList();
     final n = ids.length;
     if (n == 0) return;
     final rnd = math.Random(42);
@@ -688,7 +719,7 @@ class _GraphScreenState extends State<GraphScreen> {
           disp[ids[j]] = disp[ids[j]]! - f;
         }
       }
-      for (final r in _rels) {
+      for (final r in g.rels) {
         if (!pos.containsKey(r.a) || !pos.containsKey(r.b)) continue;
         final d = pos[r.a]! - pos[r.b]!;
         final dist = math.max(d.distance, 0.01);
@@ -700,15 +731,198 @@ class _GraphScreenState extends State<GraphScreen> {
         final d = disp[id]!;
         final len = math.max(d.distance, 0.01);
         var np = pos[id]! + d / len * math.min(len, temp);
-        // leggera attrazione verso il centro
         np = np + (const Offset(_area / 2, _area / 2) - np) * 0.01;
-        pos[id] = Offset(np.dx.clamp(80, _area - 80), np.dy.clamp(80, _area - 80));
+        pos[id] = Offset(np.dx.clamp(90, _area - 90), np.dy.clamp(90, _area - 90));
       }
       temp *= 0.97;
     }
-    _pos
+    g.pos
       ..clear()
       ..addAll(pos);
+  }
+
+  void _open(String id) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => EntryScreen(book: widget.book, entryId: id)));
+
+  Widget _viewer(_GraphPage g, Widget Function() content) => LayoutBuilder(builder: (context, c) {
+        final view = Size(c.maxWidth, c.maxHeight);
+        WidgetsBinding.instance.addPostFrameCallback((_) => _fit(g, view));
+        return InteractiveViewer(
+          transformationController: g.tc,
+          constrained: false,
+          minScale: 0.2,
+          maxScale: 2.5,
+          boundaryMargin: const EdgeInsets.all(400),
+          child: SizedBox(width: _area, height: _area, child: content()),
+        );
+      });
+
+  Widget _empty(String text, {Color? color}) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(30),
+          child: Text(text, textAlign: TextAlign.center, style: LK.body(15, color: color ?? LK.muted, style: FontStyle.italic)),
+        ),
+      );
+
+  // ---------------- Costellazione: famiglia, amori, amicizie ----------------
+  Widget _constellation() {
+    final w = _w!;
+    final maxM = math.max(1, _mentions.values.fold<int>(0, math.max));
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        gradient: const RadialGradient(center: Alignment(0, -0.3), radius: 1.2, colors: [Color(0xFF2A2E5A), Color(0xFF191B36), Color(0xFF0E0F1F)], stops: [0, 0.55, 1]),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Stack(children: [
+          Positioned.fill(child: CustomPaint(painter: _StarfieldPainter())),
+          if (_sky.pos.isEmpty)
+            _empty('Ancora nessun legame di famiglia, amore o amicizia: compariranno man mano che leggi.', color: const Color(0xFFA9A6C4))
+          else
+            Positioned.fill(
+              child: _viewer(_sky, () => Stack(children: [
+                    Positioned.fill(child: CustomPaint(painter: _SkyLinePainter(_sky.pos, _sky.rels, _selected))),
+                    for (final entry in _sky.pos.entries) _star(w.entries[entry.key]!, entry.value, (_mentions[entry.key] ?? 0) / maxM),
+                  ])),
+            ),
+          if (_selected != null && w.entries[_selected] != null) Positioned(left: 12, right: 12, bottom: 12, child: _starCard(w.entries[_selected]!)),
+        ]),
+      ),
+    );
+  }
+
+  Widget _star(WikiEntry e, Offset p, double weight) {
+    final glow = 26.0 + 46 * weight;
+    final sel = e.id == _selected;
+    return Positioned(
+      left: p.dx - 70,
+      top: p.dy - glow / 2,
+      width: 140,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => setState(() => _selected = sel ? null : e.id),
+        child: Column(children: [
+          SizedBox(
+            width: glow,
+            height: glow,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(colors: [
+                  const Color(0xFFFFF6D6),
+                  const Color(0xFFF7D27A).withValues(alpha: sel ? 1 : 0.85),
+                  const Color(0x00F7D27A),
+                ], stops: const [0.08, 0.35, 1]),
+              ),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(e.name,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              style: LK.display(12 + 4 * weight, color: weight > 0.5 || sel ? const Color(0xFFF7E08A) : const Color(0xFFCFC6A4)).copyWith(fontStyle: FontStyle.italic)),
+        ]),
+      ),
+    );
+  }
+
+  Widget _starCard(WikiEntry e) {
+    final n = _all.rels.where((r) => r.a == e.id || r.b == e.id).length;
+    final role = e.roleAt(WikiStore.I.limitFor(widget.book));
+    return GestureDetector(
+      onTap: () => _open(e.id),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(10, 10, 12, 10),
+        decoration: BoxDecoration(
+          color: const Color(0xD114162A),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0x59E2C46B)),
+        ),
+        child: Row(children: [
+          Container(
+            decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: const Color(0xFFE2C46B), width: 2)),
+            child: WikiAvatar(e, size: 36),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              Text(e.name, style: LK.display(15, color: const Color(0xFFF2E6C8))),
+              Text([if (role.isNotEmpty) role, '$n ${n == 1 ? 'legame' : 'legami'}'].join(' · '),
+                  maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.body(11.5, color: const Color(0xFFA9A6C4), style: FontStyle.italic)),
+            ]),
+          ),
+          Text('SCHEDA ›', style: LK.label(10, color: const Color(0xFFE2B84B), spacing: 1)),
+        ]),
+      ),
+    );
+  }
+
+  // ---------------- Tutti i legami: albero a inchiostro ----------------
+  Widget _inkTree() {
+    final w = _w!;
+    if (_all.pos.isEmpty) return _empty('Nessuna relazione ancora: compariranno man mano che leggi.');
+    final kinds = _all.rels.map((r) => r.kind).toSet();
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      decoration: BoxDecoration(
+        color: LK.parchment,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: LK.parchmentBorder, width: 1.4),
+        image: const DecorationImage(image: AssetImage('assets/textures/parchment.png'), repeat: ImageRepeat.repeat, opacity: 0.9, scale: 2),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(7),
+        child: Stack(children: [
+          Positioned.fill(
+            child: _viewer(_all, () => Stack(children: [
+                  Positioned.fill(child: CustomPaint(painter: _EdgePainter(_all.pos, _all.rels, LK.parchmentInk))),
+                  for (final entry in _all.pos.entries)
+                    Positioned(
+                      left: entry.value.dx - 50,
+                      top: entry.value.dy - 30,
+                      width: 100,
+                      child: GestureDetector(
+                        onTap: () => _open(entry.key),
+                        child: Column(children: [
+                          Container(
+                            decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: LK.accent, width: 2)),
+                            child: WikiAvatar(w.entries[entry.key]!, size: 44),
+                          ),
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(color: LK.paper.withValues(alpha: 0.85), borderRadius: BorderRadius.circular(6)),
+                            child: Text(w.entries[entry.key]!.name, textAlign: TextAlign.center, maxLines: 2, style: LK.body(12)),
+                          ),
+                        ]),
+                      ),
+                    ),
+                ])),
+          ),
+          // Legenda dei colori
+          Positioned(
+            left: 10,
+            right: 10,
+            bottom: 10,
+            child: IgnorePointer(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                decoration: BoxDecoration(color: LK.paper.withValues(alpha: 0.88), borderRadius: BorderRadius.circular(8), border: Border.all(color: LK.parchmentBorder)),
+                child: Wrap(spacing: 12, runSpacing: 4, children: [
+                  for (final k in _kindColors.keys.where(kinds.contains))
+                    Row(mainAxisSize: MainAxisSize.min, children: [
+                      Container(width: 14, height: 3, color: _kindColors[k]),
+                      const SizedBox(width: 5),
+                      Text(k, style: LK.body(11.5, color: LK.parchmentInk, style: FontStyle.italic)),
+                    ]),
+                ]),
+              ),
+            ),
+          ),
+        ]),
+      ),
+    );
   }
 
   @override
@@ -721,74 +935,28 @@ class _GraphScreenState extends State<GraphScreen> {
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               const BackLink(trail: 'Wiki'),
-              Text('Grafo delle relazioni', style: LK.display(26)),
+              Text(_page == 0 ? 'La costellazione' : 'Tutti i legami', style: LK.display(26)),
               const SizedBox(height: 4),
-              Text('Trascina e allarga con due dita. Tocca un nome per aprire la scheda.', style: LK.body(13, color: LK.muted)),
+              Text(
+                  _page == 0
+                      ? 'Famiglia, amori e amicizie. Più una stella è luminosa, più compare nella storia.'
+                      : 'Ogni personaggio e ogni legame. Trascina e allarga con due dita; tocca un nome per la scheda.',
+                  style: LK.body(13, color: LK.muted)),
+              const SizedBox(height: 10),
+              Center(
+                child: Segmented(
+                  labels: const ['Costellazione', 'Tutti i legami'],
+                  selected: _page,
+                  onChanged: (i) => setState(() => _page = i),
+                ),
+              ),
             ]),
           ),
           const SizedBox(height: 10),
           Expanded(
             child: w == null
                 ? Center(child: CircularProgressIndicator(color: LK.accent))
-                : _pos.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(30),
-                          child: Text('Nessuna relazione ancora: compariranno man mano che leggi.',
-                              textAlign: TextAlign.center, style: LK.body(15, color: LK.muted, style: FontStyle.italic)),
-                        ),
-                      )
-                    : Container(
-                        margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                        decoration: BoxDecoration(
-                          color: LK.parchment,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: LK.parchmentBorder, width: 1.4),
-                          image: const DecorationImage(image: AssetImage('assets/textures/parchment.png'), repeat: ImageRepeat.repeat, opacity: 0.9, scale: 2),
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(7),
-                          child: LayoutBuilder(builder: (context, c) {
-                            final view = Size(c.maxWidth, c.maxHeight);
-                            WidgetsBinding.instance.addPostFrameCallback((_) => _fit(view));
-                            return InteractiveViewer(
-                        transformationController: _tc,
-                        constrained: false,
-                        minScale: 0.2,
-                        maxScale: 2.5,
-                        boundaryMargin: const EdgeInsets.all(400),
-                        child: SizedBox(
-                          width: _area,
-                          height: _area,
-                          child: Stack(children: [
-                            Positioned.fill(child: CustomPaint(painter: _EdgePainter(_pos, _rels, LK.dark ? const Color(0xFFB59A72) : const Color(0xFF6B4A2E), LK.parchmentInk))),
-                            for (final entry in _pos.entries)
-                              Positioned(
-                                left: entry.value.dx - 50,
-                                top: entry.value.dy - 30,
-                                width: 100,
-                                child: GestureDetector(
-                                  onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => EntryScreen(book: widget.book, entryId: entry.key))),
-                                  child: Column(children: [
-                                    Container(
-                                      decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: LK.accent, width: 2)),
-                                      child: WikiAvatar(w.entries[entry.key]!, size: 44),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(color: LK.paper.withValues(alpha: 0.85), borderRadius: BorderRadius.circular(6)),
-                                      child: Text(w.entries[entry.key]!.name, textAlign: TextAlign.center, maxLines: 2, style: LK.body(12)),
-                                    ),
-                                  ]),
-                                ),
-                              ),
-                          ]),
-                        ),
-                      );
-                          }),
-                        ),
-                      ),
+                : IndexedStack(index: _page, children: [_constellation(), _inkTree()]),
           ),
         ]),
       ),
@@ -796,24 +964,80 @@ class _GraphScreenState extends State<GraphScreen> {
   }
 }
 
-class _EdgePainter extends CustomPainter {
+/// Puntini di stelle lontane sullo sfondo.
+class _StarfieldPainter extends CustomPainter {
+  @override
+  void paint(Canvas c, Size s) {
+    final rnd = math.Random(7);
+    final p = Paint();
+    for (var i = 0; i < 160; i++) {
+      p.color = Colors.white.withValues(alpha: 0.25 + rnd.nextDouble() * 0.55);
+      c.drawCircle(Offset(rnd.nextDouble() * s.width, rnd.nextDouble() * s.height), 0.4 + rnd.nextDouble() * 0.9, p);
+    }
+    final neb = Paint()
+      ..shader = RadialGradient(colors: [const Color(0xFF5E3F94).withValues(alpha: 0.32), const Color(0x005E3F94)])
+          .createShader(Rect.fromCircle(center: Offset(s.width * 0.3, s.height * 0.72), radius: s.width * 0.8));
+    c.drawRect(Offset.zero & s, neb);
+  }
+
+  @override
+  bool shouldRepaint(_StarfieldPainter old) => false;
+}
+
+/// Linee dorate tra le stelle, con il nome del legame.
+class _SkyLinePainter extends CustomPainter {
   final Map<String, Offset> pos;
   final List<WikiRelation> rels;
-  final Color line, text;
-  _EdgePainter(this.pos, this.rels, this.line, this.text);
+  final String? selected;
+  _SkyLinePainter(this.pos, this.rels, this.selected);
 
   @override
   void paint(Canvas c, Size s) {
-    final paint = Paint()
-      ..color = line
-      ..strokeWidth = 1.5
-      ..strokeCap = StrokeCap.round;
     final drawn = <String>{};
     for (final r in rels) {
       final a = pos[r.a], b = pos[r.b];
       if (a == null || b == null) continue;
+      final hi = selected == null || r.a == selected || r.b == selected;
+      final paint = Paint()
+        ..color = const Color(0xFFE2C46B).withValues(alpha: hi ? 0.6 : 0.18)
+        ..strokeWidth = hi ? 1.3 : 1;
+      c.drawLine(a, b, paint);
+      final key = '${r.a}|${r.b}';
+      if (drawn.contains(key)) continue;
+      drawn.add(key);
+      final tp = TextPainter(
+        text: TextSpan(text: r.label, style: LK.body(11, color: const Color(0xFFB9B4D8).withValues(alpha: hi ? 1 : 0.35), style: FontStyle.italic)),
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+        ellipsis: '…',
+      )..layout(maxWidth: 110);
+      tp.paint(c, (a + b) / 2 - Offset(tp.width / 2, tp.height + 2));
+      tp.dispose();
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SkyLinePainter old) => old.selected != selected || old.rels != rels;
+}
+
+/// Linee a inchiostro tratteggiate, colorate per tipo di legame.
+class _EdgePainter extends CustomPainter {
+  final Map<String, Offset> pos;
+  final List<WikiRelation> rels;
+  final Color text;
+  _EdgePainter(this.pos, this.rels, this.text);
+
+  @override
+  void paint(Canvas c, Size s) {
+    final drawn = <String>{};
+    for (final r in rels) {
+      final a = pos[r.a], b = pos[r.b];
+      if (a == null || b == null) continue;
+      final paint = Paint()
+        ..color = (_kindColors[r.kind] ?? _kindColors['altro']!).withValues(alpha: LK.dark ? 0.9 : 0.8)
+        ..strokeWidth = r.close ? 2 : 1.5
+        ..strokeCap = StrokeCap.round;
       final ca = a + const Offset(0, -8), cb = b + const Offset(0, -8);
-      // linea a inchiostro tratteggiata, come su una vecchia mappa
       final d = cb - ca;
       final len = d.distance;
       if (len < 1) continue;

@@ -42,6 +42,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   // Modalità pagine
   List<PageLayout> _pages = const [];
   String _layoutKey = '';
+  String _styleKey = '';
   bool _ui = false;
   int _page = 0;
   bool _spread = false; // due pagine affiancate
@@ -153,13 +154,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     ];
   }
 
-  Future<void> _loadChapter(int index, {double frac = 0, bool toEnd = false}) async {
-    if (_epub == null || book.chapters.isEmpty) {
-      setState(() => _loading = false);
-      return;
-    }
-    setState(() => _loading = true);
-    final paras = _prepare(_epub!.chapterParas(book.chapters[index]));
+  Future<void> _loadImages(List<Para> paras) async {
     for (final p in paras) {
       final path = p.image;
       if (path == null || _imgSizes.containsKey(path)) continue;
@@ -176,6 +171,52 @@ class _ReaderScreenState extends State<ReaderScreen> {
         _imgSizes[path] = const Size(3, 4);
       }
     }
+  }
+
+  // Capitoli vicini: mentre giri l'ultima pagina si vede già l'inizio del successivo (e viceversa).
+  final Map<int, List<Para>> _nbParas = {};
+  final Map<String, List<PageLayout>> _nbPages = {};
+  bool? _nbHyph;
+
+  Future<void> _prefetchNeighbours() async {
+    final keep = {_chapter - 1, _chapter, _chapter + 1};
+    _nbParas.removeWhere((k, _) => !keep.contains(k));
+    _nbPages.removeWhere((k, _) => !keep.contains(int.tryParse(k.split('|').first)));
+    _nbParas[_chapter] = _paras;
+    for (final i in [_chapter + 1, _chapter - 1]) {
+      if (i < 0 || i >= book.chapters.length || _nbParas.containsKey(i)) continue;
+      try {
+        final paras = _prepare(_epub!.chapterParas(book.chapters[i]));
+        await _loadImages(paras);
+        if (!mounted) return;
+        _nbParas[i] = paras;
+      } catch (_) {}
+    }
+    if (mounted) setState(() {});
+  }
+
+  String _titleOf(int i) => book.chapters.isEmpty ? book.title : book.chapters[i].title;
+
+  List<PageLayout>? _pagesOf(int i, Size size, PageStyle st) {
+    final paras = _nbParas[i];
+    if (paras == null) return null;
+    final key = '$i|$_styleKey';
+    return _nbPages[key] ??= Paginator.paginate(paras: paras, title: _titleOf(i), imageSizes: _imgSizes, page: size, st: st);
+  }
+
+  Future<void> _loadChapter(int index, {double frac = 0, bool toEnd = false}) async {
+    if (_epub == null || book.chapters.isEmpty) {
+      setState(() => _loading = false);
+      return;
+    }
+    setState(() => _loading = true);
+    if (_nbHyph != prefs.hyphenate) {
+      _nbParas.clear();
+      _nbPages.clear();
+      _nbHyph = prefs.hyphenate;
+    }
+    final paras = _nbParas[index] ?? _prepare(_epub!.chapterParas(book.chapters[index]));
+    await _loadImages(paras);
     readerFont(prefs.font, prefs.size, Colors.black, prefs.lineHeight);
     LK.display(24);
     try {
@@ -198,6 +239,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     store.setProgress(book, index, _fraction);
     _onWiki();
     WikiStore.I.ensure(book);
+    _prefetchNeighbours();
     if (!paged) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!_scroll.hasClients) return;
@@ -212,8 +254,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
   int get _step => _spread ? 2 : 1;
 
   void _ensureLayout(Size size, PageStyle st) {
-    final key = '$_chapter|${size.width.round()}x${size.height.round()}|${prefs.font}|${prefs.size}|${prefs.lineHeight}|'
+    _styleKey = '${size.width.round()}x${size.height.round()}|${prefs.font}|${prefs.size}|${prefs.lineHeight}|'
         '${st.theme.name}|${st.scaler.scale(10)}|${prefs.justify}|${prefs.hyphenate}|$_spread';
+    final key = '$_chapter|$_styleKey';
     if (key == _layoutKey) return;
     final oldCount = _pages.length;
     final keepFrac = _layoutKey.isEmpty ? null : (oldCount <= 1 ? 0.0 : _page / (oldCount - 1));
@@ -828,7 +871,24 @@ class _ReaderScreenState extends State<ReaderScreen> {
       final n = _pages.length;
       final isLast = _chapter >= book.chapters.length - 1;
       final spreads = _spread ? (n + 1) ~/ 2 : n;
-      Widget single(int i) => Padding(padding: _pad, child: ClipRect(child: _page2(_pages[i], st, size)));
+      Widget pageOf(PageLayout? p) => Padding(padding: _pad, child: ClipRect(child: p == null ? const SizedBox.shrink() : _page2(p, st, size)));
+      Widget single(int i) => pageOf(_pages[i]);
+      Widget spreadOf(PageLayout? a, PageLayout? b) => Row(children: [
+            SizedBox(width: colW, child: pageOf(a)),
+            Container(width: 1, margin: const EdgeInsets.symmetric(horizontal: (_gutter - 1) / 2, vertical: 30), color: st.theme.line),
+            SizedBox(width: colW, child: pageOf(b)),
+          ]);
+      // Pagina "oltre il bordo": l'inizio del capitolo dopo o la fine di quello prima, senza cornici.
+      Widget neighbour(bool next) {
+        final idx = next ? _chapter + 1 : _chapter - 1;
+        if (idx < 0 || idx >= book.chapters.length) return const SizedBox.shrink();
+        final ps = _pagesOf(idx, size, st);
+        if (ps == null || ps.isEmpty) return _spread ? spreadOf(null, null) : pageOf(null);
+        if (!_spread) return pageOf(next ? ps.first : ps.last);
+        if (next) return spreadOf(ps.first, ps.length > 1 ? ps[1] : null);
+        final a = (ps.length - 1) - (ps.length - 1) % 2;
+        return spreadOf(ps[a], a + 1 < ps.length ? ps[a + 1] : null);
+      }
       return PageTurner(
         key: _turner,
         count: spreads,
@@ -846,21 +906,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
         canGoAfter: !isLast,
         onCenterTap: () => setState(() => _ui = !_ui),
         builder: (i) {
-          if (i < 0) return _edge(st, 'Capitolo precedente');
-          if (i >= spreads) return _edge(st, isLast ? 'Fine' : 'Capitolo successivo');
+          if (i < 0) return neighbour(false);
+          if (i >= spreads) return neighbour(true);
           if (!_spread) return single(i);
           final a = i * 2, b = i * 2 + 1;
-          return Row(children: [
-            SizedBox(width: colW, child: single(a)),
-            Container(width: 1, margin: const EdgeInsets.symmetric(horizontal: (_gutter - 1) / 2, vertical: 30), color: st.theme.line),
-            SizedBox(width: colW, child: b < n ? single(b) : const SizedBox.shrink()),
-          ]);
+          return spreadOf(_pages[a], b < n ? _pages[b] : null);
         },
       );
     });
   }
-
-  Widget _edge(PageStyle st, String text) => Center(child: Text(text, style: LK.display(22, color: st.theme.muted, style: FontStyle.italic)));
 
   Widget _page2(PageLayout page, PageStyle st, Size size) {
     return SizedBox(
