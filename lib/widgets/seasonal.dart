@@ -2,14 +2,25 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../services/library_store.dart';
+
 /// Feste con le loro decorazioni sugli scaffali.
 const seasons = {
+  'compleanno': 'Il tuo compleanno',
+  'anniversario': 'Anniversario di Lorekeeper',
   'natale': 'Natale (1–26 dicembre)',
-  'capodanno': 'Capodanno (27 dicembre – 6 gennaio)',
+  'capodanno': 'Capodanno (27 dicembre – 5 gennaio)',
+  'epifania': 'Epifania (6 gennaio)',
   'sanvalentino': 'San Valentino (10–15 febbraio)',
   'carnevale': 'Carnevale (giovedì grasso – martedì grasso)',
   'pasqua': 'Pasqua (dal giovedì santo a Pasquetta)',
+  'repubblica': 'Festa della Repubblica (2 giugno)',
   'halloween': 'Halloween (24 ottobre – 1 novembre)',
+  'primavera': 'Primavera',
+  'estate': 'Estate',
+  'autunno': 'Autunno',
+  'inverno': 'Inverno',
+  'saga': 'Compleanno della saga (il giorno in cui l\'hai aggiunta)',
 };
 
 DateTime _easter(int y) {
@@ -20,19 +31,36 @@ DateTime _easter(int y) {
   return DateTime(y, month, day);
 }
 
-/// La festa di oggi (null se non ce n'è).
-String? currentSeason([DateTime? now]) {
+/// La decorazione di oggi: prima le feste, altrimenti la stagione.
+String currentSeason([DateTime? now]) {
   final d = now ?? DateTime.now();
   final day = DateTime(d.year, d.month, d.day);
   bool between(DateTime a, DateTime b) => !day.isBefore(a) && !day.isAfter(b);
+  String two(int n) => n.toString().padLeft(2, '0');
+  final app = LibraryStore.I.app;
+  if (app.birthday == '${two(d.month)}-${two(d.day)}') return 'compleanno';
+  final inst = DateTime.tryParse(app.installedOn ?? '');
+  if (inst != null && inst.year < d.year && inst.month == d.month && inst.day == d.day) return 'anniversario';
   if (d.month == 12 && d.day <= 26) return 'natale';
-  if ((d.month == 12 && d.day >= 27) || (d.month == 1 && d.day <= 6)) return 'capodanno';
+  if ((d.month == 12 && d.day >= 27) || (d.month == 1 && d.day <= 5)) return 'capodanno';
+  if (d.month == 1 && d.day == 6) return 'epifania';
   if (d.month == 2 && d.day >= 10 && d.day <= 15) return 'sanvalentino';
   final easter = _easter(d.year);
   if (between(easter.subtract(const Duration(days: 52)), easter.subtract(const Duration(days: 47)))) return 'carnevale';
   if (between(easter.subtract(const Duration(days: 3)), easter.add(const Duration(days: 1)))) return 'pasqua';
+  if (d.month == 6 && d.day == 2) return 'repubblica';
   if ((d.month == 10 && d.day >= 24) || (d.month == 11 && d.day == 1)) return 'halloween';
-  return null;
+  final md = d.month * 100 + d.day;
+  if (md >= 321 && md < 621) return 'primavera';
+  if (md >= 621 && md < 923) return 'estate';
+  if (md >= 923 && md < 1221) return 'autunno';
+  return 'inverno';
+}
+
+/// Anni da quando è stato installato Lorekeeper.
+int lorekeeperYears() {
+  final inst = DateTime.tryParse(LibraryStore.I.app.installedOn ?? '');
+  return inst == null ? 1 : DateTime.now().year - inst.year;
 }
 
 /// Decorazioni disegnate sopra uno scaffale: [boardTop] è dove inizia il ripiano.
@@ -40,10 +68,16 @@ class SeasonalDecor extends StatelessWidget {
   final String season;
   final double boardTop;
   final int seed;
-  const SeasonalDecor({super.key, required this.season, required this.boardTop, this.seed = 0});
+  final bool sagaBirthday; // in più: torta della saga
+  const SeasonalDecor({super.key, required this.season, required this.boardTop, this.seed = 0, this.sagaBirthday = false});
 
   @override
-  Widget build(BuildContext context) => IgnorePointer(child: CustomPaint(painter: _DecorPainter(season, boardTop, seed), size: Size.infinite));
+  Widget build(BuildContext context) => IgnorePointer(
+        child: Stack(children: [
+          Positioned.fill(child: CustomPaint(painter: _DecorPainter(season, boardTop, seed))),
+          if (sagaBirthday) Positioned.fill(child: CustomPaint(painter: _DecorPainter('saga', boardTop, seed))),
+        ]),
+      );
 }
 
 class _DecorPainter extends CustomPainter {
@@ -98,11 +132,186 @@ class _DecorPainter extends CustomPainter {
     }
   }
 
+  void _cake(Canvas c, Offset base, {int candles = 1, Color cream = const Color(0xFFFFF3E0), Color body = const Color(0xFFF48FB1)}) {
+    final w = 30.0;
+    c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(base.dx - w / 2, base.dy - 16, w, 16), const Radius.circular(3)), Paint()..color = body);
+    c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(base.dx - w / 2, base.dy - 19, w, 6), const Radius.circular(3)), Paint()..color = cream);
+    for (var i = 0; i < candles; i++) {
+      final x = base.dx - (candles - 1) * 4 + i * 8;
+      c.drawRect(Rect.fromLTWH(x - 1.2, base.dy - 28, 2.4, 9), Paint()..color = const Color(0xFF64B5F6));
+      c.drawOval(Rect.fromCenter(center: Offset(x, base.dy - 31), width: 4, height: 6), Paint()..color = const Color(0xFFFFB300));
+    }
+  }
+
+  void _balloon(Canvas c, Offset top, Color col) {
+    c.drawLine(top + const Offset(0, 12), top + const Offset(-2, 46), Paint()
+      ..color = const Color(0xFF9E9E9E)
+      ..strokeWidth = 0.8);
+    c.drawOval(Rect.fromCenter(center: top, width: 18, height: 23), Paint()..color = col);
+    c.drawCircle(top + const Offset(-4, -5), 2.5, Paint()..color = Colors.white.withValues(alpha: 0.6));
+  }
+
+  void _bunting(Canvas c, Size s, List<Color> cols) {
+    final path = Path()
+      ..moveTo(8, 10)
+      ..quadraticBezierTo(s.width / 2, 34, s.width - 8, 10);
+    c.drawPath(
+        path,
+        Paint()
+          ..color = const Color(0xFF8D6E63)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.4);
+    final m = path.computeMetrics().first;
+    final n = (m.length / 22).floor();
+    for (var i = 0; i < n; i++) {
+      final t = m.getTangentForOffset(m.length * (i + 0.5) / n)!.position;
+      c.drawPath(
+          Path()
+            ..moveTo(t.dx - 7, t.dy)
+            ..lineTo(t.dx + 7, t.dy)
+            ..lineTo(t.dx, t.dy + 14)
+            ..close(),
+          Paint()..color = cols[i % cols.length]);
+    }
+  }
+
+  void _leaf(Canvas c, Offset o, double a, Color col, double size) {
+    c.save();
+    c.translate(o.dx, o.dy);
+    c.rotate(a);
+    c.drawPath(
+        Path()
+          ..moveTo(0, -size)
+          ..quadraticBezierTo(size * 0.8, 0, 0, size)
+          ..quadraticBezierTo(-size * 0.8, 0, 0, -size),
+        Paint()..color = col);
+    c.drawLine(Offset(0, -size), Offset(0, size * 1.3), Paint()
+      ..color = col.withValues(alpha: 0.8)
+      ..strokeWidth = 1);
+    c.restore();
+  }
+
+  void _flower(Canvas c, Offset o, Color petal) {
+    for (var i = 0; i < 5; i++) {
+      final a = i * 2 * math.pi / 5;
+      c.drawCircle(o + Offset(math.cos(a), math.sin(a)) * 4, 3.4, Paint()..color = petal);
+    }
+    c.drawCircle(o, 2.4, Paint()..color = const Color(0xFFFFD54F));
+  }
+
+  void _flake(Canvas c, Offset o, double r) {
+    final p = Paint()
+      ..color = Colors.white.withValues(alpha: 0.85)
+      ..strokeWidth = 1.1;
+    for (var i = 0; i < 3; i++) {
+      final a = i * math.pi / 3;
+      c.drawLine(o - Offset(math.cos(a), math.sin(a)) * r, o + Offset(math.cos(a), math.sin(a)) * r, p);
+    }
+  }
+
   @override
   void paint(Canvas c, Size s) {
     final r = math.Random(seed + season.hashCode);
     final right = s.width - 30.0;
     switch (season) {
+      case 'compleanno':
+        _bunting(c, s, const [Color(0xFFE91E63), Color(0xFFFFC107), Color(0xFF29B6F6), Color(0xFF66BB6A), Color(0xFFAB47BC)]);
+        _cake(c, Offset(right - 6, boardTop), candles: 3);
+        _balloon(c, Offset(right - 2, 52), const Color(0xFFE53935));
+        _balloon(c, Offset(right + 10, 64), const Color(0xFF42A5F5));
+        _confetti(c, s, r, const [Color(0xFFFFC107), Color(0xFFE91E63), Color(0xFF29B6F6)], 24);
+      case 'anniversario':
+        // coccarda con gli anni di Lorekeeper
+        final o = Offset(right - 4, 40);
+        c.drawPath(
+            Path()
+              ..moveTo(o.dx - 7, o.dy)
+              ..lineTo(o.dx - 12, o.dy + 30)
+              ..lineTo(o.dx - 4, o.dy + 24)
+              ..lineTo(o.dx, o.dy + 32)
+              ..lineTo(o.dx + 4, o.dy + 24)
+              ..lineTo(o.dx + 12, o.dy + 30)
+              ..lineTo(o.dx + 7, o.dy)
+              ..close(),
+            Paint()..color = const Color(0xFF7A1E2E));
+        c.drawCircle(o, 15, Paint()..color = const Color(0xFFE2B84B));
+        c.drawCircle(o, 11, Paint()..color = const Color(0xFFF6E3A8));
+        final tp = TextPainter(
+          text: TextSpan(text: '${lorekeeperYears()}', style: const TextStyle(color: Color(0xFF7A1E2E), fontSize: 13, fontWeight: FontWeight.w800)),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        tp.paint(c, o - Offset(tp.width / 2, tp.height / 2));
+        _confetti(c, s, r, const [Color(0xFFE2B84B), Color(0xFF7A1E2E)], 18);
+      case 'epifania':
+        // calza appesa e scopa della befana
+        final sx = right + 6;
+        c.drawLine(Offset(sx, 14), Offset(sx, 30), Paint()..color = const Color(0xFF8D6E63));
+        final sock = Path()
+          ..moveTo(sx - 7, 30)
+          ..lineTo(sx + 7, 30)
+          ..lineTo(sx + 7, 52)
+          ..quadraticBezierTo(sx + 7, 62, sx - 4, 62)
+          ..lineTo(sx - 12, 62)
+          ..quadraticBezierTo(sx - 18, 56, sx - 7, 52)
+          ..close();
+        c.drawPath(sock, Paint()..color = const Color(0xFFC62828));
+        c.drawRect(Rect.fromLTWH(sx - 8, 29, 16, 6), Paint()..color = Colors.white);
+        c.drawLine(Offset(right - 50, boardTop - 2), Offset(right - 14, boardTop - 34), Paint()
+          ..color = const Color(0xFF6D4C41)
+          ..strokeWidth = 2.5);
+        c.drawPath(
+            Path()
+              ..moveTo(right - 54, boardTop - 2)
+              ..lineTo(right - 44, boardTop - 16)
+              ..lineTo(right - 36, boardTop - 2)
+              ..close(),
+            Paint()..color = const Color(0xFFC8A15A));
+      case 'repubblica':
+        _bunting(c, s, const [Color(0xFF009246), Color(0xFFF1F2F1), Color(0xFFCE2B37)]);
+      case 'primavera':
+        for (var i = 0; i < 7; i++) {
+          final x = 18 + i * (s.width - 36) / 6;
+          c.drawLine(Offset(x, 4), Offset(x, 14 + (i % 3) * 8), Paint()
+            ..color = const Color(0xFF7CB342)
+            ..strokeWidth = 1.2);
+          _flower(c, Offset(x, 18 + (i % 3) * 8), [const Color(0xFFF8BBD0), const Color(0xFFFFFFFF), const Color(0xFFE1BEE7)][i % 3]);
+        }
+        _flower(c, Offset(right - 6, boardTop - 8), const Color(0xFFF48FB1));
+        _flower(c, Offset(right + 6, boardTop - 12), const Color(0xFFFFF59D));
+      case 'estate':
+        // sole e ombrellone sul ripiano
+        final sun = Offset(right - 2, 34);
+        for (var i = 0; i < 10; i++) {
+          final a = i * math.pi / 5;
+          c.drawLine(sun + Offset(math.cos(a), math.sin(a)) * 13, sun + Offset(math.cos(a), math.sin(a)) * 19, Paint()
+            ..color = const Color(0xFFFFB300)
+            ..strokeWidth = 2);
+        }
+        c.drawCircle(sun, 10, Paint()..color = const Color(0xFFFFCA28));
+        final u = Offset(30, boardTop - 34);
+        c.drawLine(u, Offset(u.dx + 4, boardTop), Paint()
+          ..color = const Color(0xFF6D4C41)
+          ..strokeWidth = 2);
+        for (var i = 0; i < 4; i++) {
+          c.drawArc(Rect.fromCenter(center: u, width: 40, height: 26), math.pi + i * math.pi / 4, math.pi / 4, true,
+              Paint()..color = i.isEven ? const Color(0xFFE53935) : Colors.white);
+        }
+      case 'autunno':
+        const cols = [Color(0xFFD84315), Color(0xFFF9A825), Color(0xFF8D6E63), Color(0xFFEF6C00)];
+        for (var i = 0; i < 12; i++) {
+          _leaf(c, Offset(14 + r.nextDouble() * (s.width - 28), 8 + r.nextDouble() * boardTop * 0.3), r.nextDouble() * math.pi, cols[i % 4], 5 + r.nextDouble() * 3);
+        }
+        for (var i = 0; i < 5; i++) {
+          _leaf(c, Offset(20 + i * 9.0, boardTop - 3), math.pi / 2 + r.nextDouble(), cols[(i + 1) % 4], 5);
+        }
+      case 'inverno':
+        for (var i = 0; i < 16; i++) {
+          _flake(c, Offset(14 + r.nextDouble() * (s.width - 28), 8 + r.nextDouble() * boardTop * 0.45), 3 + r.nextDouble() * 3);
+        }
+        final snow = Paint()..color = Colors.white.withValues(alpha: 0.8);
+        c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(10, boardTop - 3, s.width - 20, 5), const Radius.circular(3)), snow);
+      case 'saga':
+        _cake(c, Offset(46, boardTop), candles: 1, body: const Color(0xFF8D6E63), cream: const Color(0xFFFFF8E1));
       case 'natale':
         _garland(c, s, const Color(0xFF2F5A34), const [Color(0xFFE53935), Color(0xFFFFC107), Color(0xFF43A047), Color(0xFF1E88E5)]);
         // neve sul ripiano

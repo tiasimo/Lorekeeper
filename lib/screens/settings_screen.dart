@@ -161,6 +161,64 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ]);
               },
             ),
+            const SizedBox(height: 22),
+            const SectionLabel('Decorazioni degli scaffali'),
+            ListenableBuilder(
+              listenable: LibraryStore.I,
+              builder: (context, _) {
+                final app = LibraryStore.I.app;
+                const mesi = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+                String label() {
+                  final b = app.birthday;
+                  if (b == null) return 'Non impostato';
+                  final parts = b.split('-');
+                  return '${int.parse(parts[1])} ${mesi[int.parse(parts[0]) - 1]}';
+                }
+
+                return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    activeThumbColor: LK.accent,
+                    value: app.seasonal,
+                    onChanged: (v) {
+                      app.seasonal = v;
+                      LibraryStore.I.saveAppPrefs();
+                    },
+                    title: Text('Feste e stagioni sugli scaffali', style: LK.body(14.5)),
+                    subtitle: Text('Natale, Capodanno, Befana, San Valentino, Carnevale, Pasqua, 2 giugno, Halloween, le stagioni, il tuo compleanno e altro.', style: LK.body(12.5, color: LK.muted)),
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.cake_outlined, color: LK.accent),
+                    title: Text('Il tuo compleanno', style: LK.body(14.5)),
+                    subtitle: Text(label(), style: LK.body(12.5, color: LK.muted)),
+                    trailing: app.birthday == null
+                        ? null
+                        : IconButton(
+                            icon: Icon(Icons.close, color: LK.muted, size: 18),
+                            onPressed: () {
+                              app.birthday = null;
+                              LibraryStore.I.saveAppPrefs();
+                            },
+                          ),
+                    onTap: () async {
+                      final now = DateTime.now();
+                      final d = await showDatePicker(
+                        context: context,
+                        initialDate: DateTime(2000, now.month, now.day),
+                        firstDate: DateTime(2000, 1, 1),
+                        lastDate: DateTime(2000, 12, 31),
+                        helpText: 'GIORNO E MESE DEL TUO COMPLEANNO',
+                        initialEntryMode: DatePickerEntryMode.calendarOnly,
+                      );
+                      if (d == null) return;
+                      app.birthday = '${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+                      LibraryStore.I.saveAppPrefs();
+                    },
+                  ),
+                ]);
+              },
+            ),
             const SizedBox(height: 26),
             const SectionLabel('Obiettivo di lettura'),
             ListenableBuilder(

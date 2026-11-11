@@ -84,6 +84,8 @@ class AppPrefs {
   /// Personalizzazione di ogni scaffale: chiave → {bg, wood, deco}
   Map<String, Map<String, dynamic>> shelfLooks = {};
   int section = 0; // 0 novel, 1 manga (ultima sezione aperta)
+  String? birthday; // "MM-GG", per la decorazione del compleanno
+  String? installedOn; // "AAAA-MM-GG", per l'anniversario dell'app
 
   Map<String, dynamic> toJson() => {
         'goalMinutes': goalMinutes, 'reminder': reminder, 'reminderHour': reminderHour, 'reminderMinute': reminderMinute,
@@ -94,6 +96,8 @@ class AppPrefs {
         'seasonal': seasonal,
         'shelfLooks': shelfLooks,
         'section': section,
+        'birthday': birthday,
+        'installedOn': installedOn,
       };
 
   void fromJson(Map<String, dynamic> j) {
@@ -112,6 +116,8 @@ class AppPrefs {
     mangaShelfBg = v('mangaShelfBg', mangaShelfBg);
     seasonal = v('seasonal', seasonal);
     section = v('section', section);
+    birthday = j['birthday'] as String?;
+    installedOn = j['installedOn'] as String?;
     final sl = j['shelfLooks'];
     if (sl is Map) {
       shelfLooks = {for (final e in sl.entries) if (e.value is Map) e.key as String: Map<String, dynamic>.from(e.value as Map)};
@@ -220,6 +226,11 @@ class LibraryStore extends ChangeNotifier {
     final fb = _prefs.getString('stats.finished');
     if (fb != null) finishedBooks = Map<String, int>.from(jsonDecode(fb) as Map);
     _sagaStyles();
+    if (app.installedOn == null) {
+      final d = DateTime.now();
+      app.installedOn = '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+      _prefs.setString('app.prefs', jsonEncode(app.toJson()));
+    }
     loaded = true;
     notifyListeners();
     _migrate();

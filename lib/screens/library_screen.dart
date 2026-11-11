@@ -18,6 +18,7 @@ import 'spine_editor_screen.dart';
 import 'manga/manga_detail.dart';
 import 'manga/manga_home.dart';
 import 'manga/manga_settings.dart';
+import '../services/background.dart';
 import '../services/manga_store.dart';
 import 'stats_screen.dart';
 import '../widgets/shelf_backdrop.dart';
@@ -46,7 +47,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
       final u = await Updater.checkIfDue();
       if (u != null && mounted) showUpdateDialog(context, u);
     });
-    // Manga: controllo dei nuovi capitoli (al massimo ogni 12 ore)
+    // Manga: controllo dei nuovi capitoli in background ogni 3 ore
+    Background.setup();
+    // e all'apertura (al massimo ogni 12 ore)
     Future.delayed(const Duration(seconds: 6), () => MangaStore.I.refreshIfDue().catchError((_) => 0));
     // Widget "Continua a leggere": apre direttamente l'ultimo libro.
     HomeWidgetSync.update();
@@ -513,6 +516,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (books <= 3) entries.add('o:${_decor[(key.hashCode ~/ 7).abs() % _decor.length]}');
     final wood = store.app.woodFor(key);
     final season = store.app.decoFor(key) ? currentSeason() : null;
+    // compleanno della saga: il giorno in cui hai aggiunto il primo volume
+    var sagaBirthday = false;
+    final adds = [for (final e in raw) if (e.startsWith('b:')) store.byId(e.substring(2))?.addedAt].whereType<DateTime>().toList()..sort();
+    if (key != '_flat' && adds.isNotEmpty) {
+      final now = DateTime.now(), first = adds.first;
+      sagaBirthday = first.year < now.year && first.month == now.month && first.day == now.day;
+    }
     final list = ListView.separated(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -591,7 +601,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ]),
         Positioned(left: 0, top: 6, bottom: -5, child: ShelfSide(wood: wood)),
         Positioned(right: 0, top: 6, bottom: -5, child: ShelfSide(wood: wood, right: true)),
-        if (season != null) Positioned.fill(child: SeasonalDecor(season: season, boardTop: 240, seed: key.hashCode)),
+        if (season != null) Positioned.fill(child: SeasonalDecor(season: season, boardTop: 240, seed: key.hashCode, sagaBirthday: sagaBirthday)),
       ]),
     );
   }

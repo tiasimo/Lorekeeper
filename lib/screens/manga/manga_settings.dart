@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../services/anilist.dart';
+import '../../services/background.dart';
 import '../../services/library_store.dart';
 import '../../services/manga_downloads.dart';
 import '../../services/manga_prefs.dart';
@@ -71,7 +72,24 @@ class _MangaSettingsScreenState extends State<MangaSettingsScreen> {
           ),
           const SizedBox(height: 22),
           const SectionLabel('Nuovi capitoli'),
-          Text('Controllo automatico ogni 12 ore, all\'apertura dell\'app, con una notifica se ne escono di nuovi.', style: LK.body(13.5, color: LK.muted)),
+          FutureBuilder<bool>(
+            future: Background.enabled(),
+            builder: (context, snap) => SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              activeThumbColor: LK.accent,
+              value: snap.data ?? true,
+              onChanged: (v) async {
+                await Background.setEnabled(v);
+                setState(() {});
+              },
+              title: Text('Controlla ogni 3 ore, anche ad app chiusa', style: LK.body(14.5)),
+              subtitle: Text(
+                'Con la connessione attiva e la batteria non scarica; arriva una notifica se escono capitoli. '
+                'Su alcuni telefoni bisogna togliere Lorekeeper dall\'ottimizzazione della batteria.',
+                style: LK.body(12.5, color: LK.muted),
+              ),
+            ),
+          ),
           TextButton.icon(
             onPressed: () async {
               final n = await MangaStore.I.refreshLibrary();

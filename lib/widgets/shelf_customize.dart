@@ -95,7 +95,7 @@ Future<void> showShelfCustomize(BuildContext context, {required String key, requ
               onChanged: (v) => set('deco', v),
               title: Text('Decorazioni delle feste', style: LK.body(15)),
               subtitle: Text(
-                season == null ? 'Compaiono da sole a Natale, Capodanno, San Valentino, Carnevale, Pasqua e Halloween.' : 'Adesso: ${seasons[season]}',
+                'Cambiano da sole con le feste e le stagioni. Adesso: ${seasons[season]}',
                 style: LK.body(12.5, color: LK.muted),
               ),
             ),
