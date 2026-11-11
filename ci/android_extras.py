@@ -204,6 +204,10 @@ subprojects {
         } catch (e: Exception) {
         }
         try {
+            android.javaClass.getMethod("compileSdkVersion", Int::class.javaPrimitiveType).invoke(android, 36)
+        } catch (e: Exception) {
+        }
+        try {
             val co = android.javaClass.getMethod("getCompileOptions").invoke(android)
             co.javaClass.getMethod("setSourceCompatibility", JavaVersion::class.java).invoke(co, JavaVersion.VERSION_17)
             co.javaClass.getMethod("setTargetCompatibility", JavaVersion::class.java).invoke(co, JavaVersion.VERSION_17)
