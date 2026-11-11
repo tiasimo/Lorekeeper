@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -30,6 +33,7 @@ jobs:
           flutter create --platforms=android --org com.tiasimo --project-name lorekeeper .
           rm -rf test
           python3 ci/patch_android.py
+          python3 ci/android_extras.py
 
       # Chiave di firma fissa: così ogni nuovo APK si installa sopra il precedente senza perdere i dati.
       - name: Chiave di firma
@@ -59,3 +63,12 @@ jobs:
         with:
           name: Lorekeeper-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+
+      # Pubblica l'APK come release: l'app la trova da sola in "Cerca aggiornamenti".
+      - name: Pubblica la release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk Lorekeeper.apk
+          MSG=$(git log -1 --pretty=%s)
+          gh release create "build-${{ github.run_number }}" Lorekeeper.apk --title "Lorekeeper build ${{ github.run_number }}" --notes "$MSG" --latest

@@ -399,7 +399,17 @@ class WikiStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  String photoDir() => _dir.path;
+  /// Le foto stanno in una sottocartella esclusa dal backup automatico di Android (troppo pesanti).
+  String photoDir() {
+    final d = Directory(p.join(_dir.path, 'photos'));
+    d.createSync(recursive: true);
+    return d.path;
+  }
+
+  void clearCache() {
+    _cache.clear();
+    notifyListeners();
+  }
 
   /// Limite anti-spoiler per il libro, in base all'impostazione scelta.
   int limitFor(Book b) {

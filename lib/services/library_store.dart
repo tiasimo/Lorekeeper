@@ -124,9 +124,17 @@ class LibraryStore extends ChangeNotifier {
   /// Velocità di lettura stimata (caratteri al secondo).
   double charsPerSecond = 0;
   Map<String, int> secondsByDay = {};
+  Map<String, int> chaptersByDay = {};
+  Map<String, int> finishedBooks = {}; // id libro → data di fine (ms)
   int chaptersRead = 0;
 
   Timer? _saveTimer;
+
+  /// Rilegge tutto da disco (dopo il ripristino di un backup).
+  Future<void> reload() async {
+    loaded = false;
+    await load();
+  }
 
   Future<void> load() async {
     if (loaded) return;
@@ -167,6 +175,10 @@ class LibraryStore extends ChangeNotifier {
     chaptersRead = _prefs.getInt('stats.chapters') ?? 0;
     final s = _prefs.getString('stats.days');
     if (s != null) secondsByDay = Map<String, int>.from(jsonDecode(s) as Map);
+    final cd = _prefs.getString('stats.chdays');
+    if (cd != null) chaptersByDay = Map<String, int>.from(jsonDecode(cd) as Map);
+    final fb = _prefs.getString('stats.finished');
+    if (fb != null) finishedBooks = Map<String, int>.from(jsonDecode(fb) as Map);
     loaded = true;
     notifyListeners();
     _migrate();
@@ -233,6 +245,21 @@ class LibraryStore extends ChangeNotifier {
   Future<Book> importEpub(String sourcePath) async {
     final bytes = await File(sourcePath).readAsBytes();
     final meta = await compute(_parseMeta, bytes);
+    // Libro ripristinato da un backup senza il file: rimetto l'EPUB al suo posto
+    // e tengo progressi, wiki, note e statistiche.
+    for (final old in books) {
+      if (old.title == meta.title && old.author == meta.author && !File(old.filePath).existsSync()) {
+        await File(old.filePath).parent.create(recursive: true);
+        await File(old.filePath).writeAsBytes(bytes, flush: true);
+        if (meta.cover != null) {
+          old.coverPath ??= p.join(_dir.path, 'books', '${old.id}_cover.${meta.coverExt}');
+          await File(old.coverPath!).writeAsBytes(meta.cover!, flush: true);
+        }
+        await _saveNow();
+        notifyListeners();
+        return old;
+      }
+    }
     final id = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
     final dest = p.join(_dir.path, 'books', '$id.epub');
     await File(dest).writeAsBytes(bytes, flush: true);
@@ -406,6 +433,7 @@ class LibraryStore extends ChangeNotifier {
     b.lastChapter = chapter;
     b.lastOffset = offset.clamp(0.0, 1.0);
     b.lastReadAt = DateTime.now();
+    if (b.chapters.isNotEmpty && chapter >= b.chapters.length - 1 && offset >= 0.97) markFinished(b);
     save(soon: true);
   }
 
@@ -419,7 +447,20 @@ class LibraryStore extends ChangeNotifier {
   void chapterFinished() {
     chaptersRead++;
     _prefs.setInt('stats.chapters', chaptersRead);
+    final k = _dayKey(DateTime.now());
+    chaptersByDay[k] = (chaptersByDay[k] ?? 0) + 1;
+    _prefs.setString('stats.chdays', jsonEncode(chaptersByDay));
   }
+
+  /// Segna il libro come finito (una volta sola) per il calendario e le statistiche.
+  void markFinished(Book b) {
+    if (finishedBooks.containsKey(b.id)) return;
+    finishedBooks[b.id] = DateTime.now().millisecondsSinceEpoch;
+    _prefs.setString('stats.finished', jsonEncode(finishedBooks));
+    notifyListeners();
+  }
+
+  static String dayKey(DateTime d) => _dayKey(d);
 
   int get streak {
     var day = DateTime.now();

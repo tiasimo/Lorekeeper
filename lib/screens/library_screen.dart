@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
+import 'package:home_widget/home_widget.dart';
 import 'package:flutter/material.dart';
 
 import '../models/book.dart';
@@ -11,6 +15,10 @@ import 'book_screen.dart';
 import 'reader_screen.dart';
 import 'settings_screen.dart';
 import 'spine_editor_screen.dart';
+import 'stats_screen.dart';
+import '../services/home_widget_sync.dart';
+import '../services/updater.dart';
+import '../widgets/update_dialog.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -21,6 +29,34 @@ class LibraryScreen extends StatefulWidget {
 class _LibraryScreenState extends State<LibraryScreen> {
   final store = LibraryStore.I;
   bool _importing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Controllo silenzioso degli aggiornamenti (al massimo ogni 12 ore).
+    Future.delayed(const Duration(seconds: 3), () async {
+      final u = await Updater.checkIfDue();
+      if (u != null && mounted) showUpdateDialog(context, u);
+    });
+    // Widget "Continua a leggere": apre direttamente l'ultimo libro.
+    HomeWidgetSync.update();
+    HomeWidget.initiallyLaunchedFromHomeWidget().then(_fromWidget).catchError((_) {});
+    _widgetSub = HomeWidget.widgetClicked.listen(_fromWidget, onError: (_) {});
+  }
+
+  StreamSubscription<Uri?>? _widgetSub;
+
+  void _fromWidget(Uri? uri) {
+    if (uri == null || !mounted) return;
+    final b = HomeWidgetSync.lastRead();
+    if (b != null) Navigator.of(context).push(MaterialPageRoute(builder: (_) => ReaderScreen(book: b)));
+  }
+
+  @override
+  void dispose() {
+    _widgetSub?.cancel();
+    super.dispose();
+  }
 
   Future<void> _import() async {
     final res = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['epub'], allowMultiple: true);
@@ -45,7 +81,31 @@ class _LibraryScreenState extends State<LibraryScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  void _openBook(Book b) => Navigator.of(context).push(bookRoute(BookScreen(book: b)));
+  void _openBook(Book b) {
+    if (!File(b.filePath).existsSync()) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: LK.paper,
+          title: Text('Manca il file', style: LK.display(20)),
+          content: Text('«${b.title}» è stato ripristinato da un backup senza l\'EPUB. Reimportalo: ritroverà progressi, wiki e note.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annulla')),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: LK.accent),
+              onPressed: () {
+                Navigator.pop(ctx);
+                _import();
+              },
+              child: const Text('Reimporta EPUB'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    Navigator.of(context).push(bookRoute(BookScreen(book: b)));
+  }
 
   void _continue() {
     final b = store.lastRead ?? (store.books.isEmpty ? null : store.books.first);
@@ -575,7 +635,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
         );
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
-      child: Container(
+      child: GestureDetector(
+        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const StatsScreen())),
+        child: Container(
         padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(color: LK.parchment, borderRadius: BorderRadius.circular(6), border: Border.all(color: LK.parchmentBorder)),
         child: Container(
@@ -612,8 +674,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
               ]);
             }),
+            const SizedBox(height: 12),
+            Text('CALENDARIO E STATISTICHE ›', style: LK.label(9.5, color: LK.accent, spacing: 1.2)),
           ]),
         ),
+      ),
       ),
     );
   }

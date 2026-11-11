@@ -1,10 +1,15 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 
+import '../services/backup.dart';
 import '../services/library_store.dart';
 import '../services/reminders.dart';
 import '../services/secrets.dart';
+import '../services/updater.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/update_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -15,6 +20,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final _name = TextEditingController(text: LibraryStore.I.readerName);
   final _key = TextEditingController();
+  bool _checking = false;
   bool _show = false;
   bool _hasKey = false;
 
@@ -246,11 +252,93 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Text(_hasKey ? 'Chiave presente' : 'Nessuna chiave', style: LK.body(13, color: LK.muted)),
             ]),
             const SizedBox(height: 30),
+            const SectionLabel('Backup'),
+            Text(
+              'Android salva in automatico su Google Drive libreria, progressi, wiki, note e statistiche '
+              '(Impostazioni del telefono → Google → Backup). Gli EPUB non sono inclusi: dopo un ripristino '
+              'basta reimportarli e ogni libro ritrova i suoi dati.',
+              style: LK.body(13, color: LK.muted),
+            ),
+            const SizedBox(height: 10),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(side: BorderSide(color: LK.border), backgroundColor: LK.card),
+                onPressed: () async {
+                  try {
+                    final f = await Backup.export();
+                    await Share.shareXFiles([XFile(f.path, mimeType: 'application/zip')], text: 'Backup di Lorekeeper');
+                  } catch (e) {
+                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Backup non riuscito: $e')));
+                  }
+                },
+                icon: Icon(Icons.cloud_upload_outlined, color: LK.accent),
+                label: Text('Salva backup (Drive…)', style: LK.body(14)),
+              ),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(side: BorderSide(color: LK.border), backgroundColor: LK.card),
+                onPressed: () async {
+                  final r = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['zip']);
+                  final path = r?.files.single.path;
+                  if (path == null || !mounted) return;
+                  final ok = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      backgroundColor: LK.paper,
+                      title: Text('Ripristinare il backup?', style: LK.display(20)),
+                      content: const Text('Libreria, wiki, note e statistiche verranno sostituite con quelle del backup.'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annulla')),
+                        FilledButton(style: FilledButton.styleFrom(backgroundColor: LK.accent), onPressed: () => Navigator.pop(ctx, true), child: const Text('Ripristina')),
+                      ],
+                    ),
+                  );
+                  if (ok != true) return;
+                  try {
+                    final missing = await Backup.restore(path);
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text(missing == 0 ? 'Backup ripristinato' : 'Backup ripristinato. Reimporta $missing EPUB dalla libreria per riaprirli.'),
+                    ));
+                    setState(() {});
+                  } catch (e) {
+                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Ripristino non riuscito: $e')));
+                  }
+                },
+                icon: Icon(Icons.restore, color: LK.accent),
+                label: Text('Ripristina', style: LK.body(14)),
+              ),
+            ]),
+            const SizedBox(height: 30),
             const SectionLabel('Informazioni'),
-            Text('Lorekeeper 0.6 · il custode delle tue storie', style: LK.body(14)),
-            const SizedBox(height: 4),
-            Text('In arrivo: evidenziazioni e note, lettura ad alta voce, backup e widget.',
-                style: LK.body(13, color: LK.muted)),
+            Text('Lorekeeper 0.7 · il custode delle tue storie', style: LK.body(14)),
+            FutureBuilder<String>(
+              future: Updater.currentVersion(),
+              builder: (_, s) => Text(s.data ?? '', style: LK.body(12.5, color: LK.muted)),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(side: BorderSide(color: LK.border), backgroundColor: LK.card),
+              onPressed: _checking
+                  ? null
+                  : () async {
+                      setState(() => _checking = true);
+                      try {
+                        final u = await Updater.check();
+                        if (!mounted) return;
+                        if (u == null) {
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Hai già l\'ultima versione')));
+                        } else {
+                          await showUpdateDialog(context, u);
+                        }
+                      } catch (e) {
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Controllo non riuscito: $e')));
+                      } finally {
+                        if (mounted) setState(() => _checking = false);
+                      }
+                    },
+              icon: _checking ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: LK.accent)) : Icon(Icons.system_update_alt, color: LK.accent),
+              label: Text('Cerca aggiornamenti', style: LK.body(14)),
+            ),
           ],
         ),
       ),

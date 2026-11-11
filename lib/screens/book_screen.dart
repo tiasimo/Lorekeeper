@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../models/book.dart';
+import '../services/annotations.dart';
 import '../services/library_store.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/quote_card.dart';
 import 'reader_screen.dart';
 import 'spine_editor_screen.dart';
 import 'wiki_screens.dart';
@@ -86,18 +88,123 @@ class _BookScreenState extends State<BookScreen> {
                   ),
                 ]),
                 const SizedBox(height: 22),
-                Center(child: Segmented(labels: const ['Capitoli', 'Wiki'], selected: _tab, onChanged: (i) => setState(() => _tab = i))),
+                Center(child: Segmented(labels: const ['Capitoli', 'Wiki', 'Diario'], selected: _tab, onChanged: (i) => setState(() => _tab = i))),
                 const SizedBox(height: 14),
                 if (_tab == 0)
                   for (var i = 0; i < b.chapters.length; i++) _chapterRow(b, i, cur)
+                else if (_tab == 1)
+                  WikiView(book: b)
                 else
-                  WikiView(book: b),
+                  ..._diary(b),
               ],
             );
           },
         ),
       ),
     );
+  }
+
+  final _review = TextEditingController();
+  bool _reviewLoaded = false;
+
+  @override
+  void dispose() {
+    if (_reviewLoaded) {
+      final n = Annotations.I.of(widget.book.id);
+      if (n.review != _review.text.trim()) {
+        n.review = _review.text.trim();
+        Annotations.I.save(widget.book.id);
+      }
+    }
+    _review.dispose();
+    super.dispose();
+  }
+
+  /// Voto, recensione, citazioni preferite e note del libro.
+  List<Widget> _diary(Book b) {
+    final n = Annotations.I.of(b.id);
+    if (!_reviewLoaded) {
+      _review.text = n.review;
+      _reviewLoaded = true;
+    }
+    final favs = n.highlights.where((h) => h.favorite).toList();
+    final others = n.highlights.where((h) => !h.favorite).toList()..sort((a, c) => a.chapter != c.chapter ? a.chapter.compareTo(c.chapter) : a.frac.compareTo(c.frac));
+    String ch(int c) => c < b.chapters.length ? b.chapters[c].title : '';
+    Widget quote(Highlight h) => Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.fromLTRB(14, 12, 6, 10),
+          decoration: BoxDecoration(color: LK.card, borderRadius: BorderRadius.circular(12), border: Border.all(color: LK.line)),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Container(width: 4, height: 44, margin: const EdgeInsets.only(right: 10, top: 2), decoration: BoxDecoration(color: Color(Annotations.colors[h.color % 4]), borderRadius: BorderRadius.circular(2))),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('«${h.text}»', style: LK.body(14.5, height: 1.5, style: FontStyle.italic)),
+                if (h.note.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Text(h.note, style: LK.body(13.5, color: LK.muted))),
+                const SizedBox(height: 4),
+                Text(ch(h.chapter).toUpperCase(), maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.label(8.5, spacing: 0.8)),
+              ]),
+            ),
+            Column(children: [
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                icon: Icon(h.favorite ? Icons.star : Icons.star_border, color: h.favorite ? LK.gold : LK.muted, size: 20),
+                onPressed: () async {
+                  h.favorite = !h.favorite;
+                  await Annotations.I.save(b.id);
+                  setState(() {});
+                },
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                icon: Icon(Icons.ios_share, color: LK.accent, size: 19),
+                onPressed: () => showQuoteShare(context, book: b, text: h.text, chapter: ch(h.chapter)),
+              ),
+            ]),
+          ]),
+        );
+    return [
+      const SectionLabel('Il tuo voto'),
+      Row(children: [
+        for (var i = 1; i <= 5; i++)
+          IconButton(
+            onPressed: () async {
+              n.rating = n.rating == i ? 0 : i;
+              await Annotations.I.save(b.id);
+              setState(() {});
+            },
+            icon: Icon(i <= n.rating ? Icons.star_rounded : Icons.star_outline_rounded, color: LK.gold, size: 34),
+          ),
+      ]),
+      const SizedBox(height: 10),
+      const SectionLabel('Recensione'),
+      TextField(
+        controller: _review,
+        maxLines: 6,
+        minLines: 3,
+        onEditingComplete: () {
+          n.review = _review.text.trim();
+          Annotations.I.save(b.id);
+        },
+        decoration: InputDecoration(
+          hintText: 'Cosa ti è rimasto di questo libro?',
+          filled: true,
+          fillColor: LK.parchment,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: LK.parchmentBorder)),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: LK.parchmentBorder)),
+        ),
+      ),
+      const SizedBox(height: 20),
+      const SectionLabel('Citazioni preferite'),
+      if (favs.isEmpty)
+        Text('Mentre leggi, tieni premuta una frase e scegli «Citazione preferita».', style: LK.body(14, color: LK.muted, style: FontStyle.italic))
+      else
+        for (final h in favs) quote(h),
+      if (others.isNotEmpty) ...[
+        const SizedBox(height: 16),
+        const SectionLabel('Evidenziazioni e note'),
+        for (final h in others) quote(h),
+      ],
+    ];
   }
 
   String _fmt(double v) => v == v.roundToDouble() ? v.toInt().toString() : v.toString();

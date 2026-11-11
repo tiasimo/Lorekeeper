@@ -5,11 +5,14 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/book.dart';
+import '../services/annotations.dart';
 import '../services/epub.dart';
+import '../services/home_widget_sync.dart';
 import '../services/hyphen.dart';
 import '../services/library_store.dart';
 import '../services/paginator.dart';
@@ -17,6 +20,7 @@ import '../services/wiki.dart';
 import '../theme.dart';
 import '../widgets/lk_icons.dart';
 import '../widgets/page_turner.dart';
+import '../widgets/quote_card.dart';
 import '../widgets/word_sheet.dart';
 import 'wiki_screens.dart';
 
@@ -64,6 +68,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
   RegExp? _nameRe;
   final Map<String, String> _nameIds = {};
   DateTime? _prevRead;
+
+  // Evidenziazioni, segnalibri, ricerca, lettura ad alta voce
+  BookNotes get _notes => Annotations.I.of(book.id);
+  String? _flash; // testo trovato con la ricerca, evidenziato finché giri pagina
+  String? _pendingFind; // testo da raggiungere dopo l'impaginazione
+  final FlutterTts _tts = FlutterTts();
+  bool _speaking = false;
+  bool _ttsPaused = false;
+  int _ttsRun = 0;
+  String? _ttsText; // blocco che si sta leggendo
+  double _ttsRate = 0.5;
 
   Book get book => widget.book;
   ReaderPrefs get prefs => store.reader;
@@ -273,6 +288,45 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _page = _pendingToEnd && keepFrac == null ? n - 1 : (frac * (n - 1)).round().clamp(0, n - 1);
     if (_spread) _page -= _page % 2;
     _pendingToEnd = false;
+    final find = _pendingFind;
+    if (find != null) {
+      _pendingFind = null;
+      final i = _findPage(find);
+      if (i >= 0) {
+        _page = i - (_spread ? i % 2 : 0);
+        _fraction = n <= 1 ? 1 : _page / (n - 1);
+      }
+    }
+  }
+
+  String _blockPlain(PageBlock b) => b.segs.map((s) => s.text).join().replaceAll(Hyphen.soft, '');
+
+  /// Pagina che contiene [needle] (o l'inizio), -1 se non c'è.
+  int _findPage(String needle) {
+    final q = needle.toLowerCase();
+    final head = q.length > 30 ? q.substring(0, 30) : q;
+    for (var i = 0; i < _pages.length; i++) {
+      final txt = _pages[i].blocks.map(_blockPlain).join(' ').toLowerCase();
+      if (txt.contains(head)) return i;
+    }
+    return -1;
+  }
+
+  /// Porta al capitolo e alla pagina che contengono [text].
+  void _goToText(int chapter, String text, {double frac = 0}) {
+    setState(() => _ui = false);
+    if (chapter == _chapter && paged && _pages.isNotEmpty) {
+      final i = _findPage(text);
+      if (i >= 0) {
+        _setPage(i - (_spread ? i % 2 : 0));
+        return;
+      }
+    }
+    _pendingFind = text;
+    _loadChapter(chapter, frac: frac);
+    if (!paged) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {});
+    }
   }
 
   int _pageChars(int i) {
@@ -297,6 +351,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (i > _page) store.recordPage(chars, secs);
     _pageShownAt = DateTime.now();
     setState(() {
+      if (i != _page && _ttsText == null) _flash = null;
       _page = i.clamp(0, n - 1);
       _fraction = n <= 1 ? 1 : _page / (n - 1);
       _ui = false;
@@ -348,11 +403,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
   void dispose() {
     _flushTime();
     _timeTimer?.cancel();
+    _ttsRun++;
+    _tts.stop();
     _scroll.dispose();
     _focus.dispose();
     WikiStore.I.removeListener(_onWiki);
     _restoreSystem();
     store.updateBook(book);
+    HomeWidgetSync.update();
     super.dispose();
   }
 
@@ -389,32 +447,98 @@ class _ReaderScreenState extends State<ReaderScreen> {
     ];
   }
 
+  /// Intervalli evidenziati nel testo del blocco (che può contenere trattini morbidi).
+  List<(int, int, Color)> _marks(String text, ReaderTheme t) {
+    final out = <(int, int, Color)>[];
+    final hls = _notes.highlights.where((h) => h.chapter == _chapter).toList();
+    if (hls.isEmpty && _flash == null && _ttsText == null) return out;
+    // mappa testo senza trattini → testo originale
+    final map = <int>[];
+    final sb = StringBuffer();
+    for (var i = 0; i < text.length; i++) {
+      if (text[i] == Hyphen.soft) continue;
+      map.add(i);
+      sb.write(text[i]);
+    }
+    map.add(text.length);
+    final plain = sb.toString();
+    void add(int a, int z, Color c) {
+      if (z > a) out.add((map[a.clamp(0, map.length - 1)], map[z.clamp(0, map.length - 1)], c));
+    }
+
+    final dark = t.name == 'Notte';
+    for (final h in hls) {
+      final c = Color(Annotations.colors[h.color % Annotations.colors.length]).withValues(alpha: dark ? 0.38 : 0.55);
+      final x = h.text;
+      final i = plain.indexOf(x);
+      if (i >= 0) {
+        add(i, i + x.length, c);
+        continue;
+      }
+      // frase spezzata tra due pagine: inizio o fine del blocco
+      if (plain.length >= 12) {
+        final head = plain.substring(0, plain.length < 24 ? plain.length : 24);
+        final at = x.indexOf(head);
+        if (at > 0 && plain.startsWith(x.substring(at))) add(0, x.length - at, c);
+        final start = x.substring(0, x.length < 24 ? x.length : 24);
+        final s2 = plain.lastIndexOf(start);
+        if (s2 > 0 && x.startsWith(plain.substring(s2))) add(s2, plain.length, c);
+      }
+    }
+    final f = _flash;
+    if (f != null && f.isNotEmpty) {
+      final lp = plain.toLowerCase(), lf = f.toLowerCase();
+      var i = lp.indexOf(lf);
+      while (i >= 0) {
+        add(i, i + f.length, t.accent.withValues(alpha: 0.28));
+        i = lp.indexOf(lf, i + f.length);
+      }
+    }
+    if (_ttsText != null && plain == _ttsText) add(0, plain.length, t.accent.withValues(alpha: 0.12));
+    return out;
+  }
+
   InlineSpan _richSpan(List<TextSeg> segs, ReaderTheme t) {
     final text = segs.map((s) => s.text).join();
     final ms = _matches(text);
-    if (ms.isEmpty) return PageStyle.span(segs);
+    final marks = _marks(text, t);
+    if (ms.isEmpty && marks.isEmpty) return PageStyle.span(segs);
     final hl = TextStyle(
       color: Color.lerp(t.ink, t.accent, 0.65),
       decoration: TextDecoration.underline,
       decorationStyle: TextDecorationStyle.dotted,
       decorationColor: t.accent.withValues(alpha: 0.6),
     );
-    final out = <InlineSpan>[];
+    // confini di tutti gli intervalli
+    final cuts = <int>{0, text.length};
+    for (final m in ms) {
+      cuts..add(m.$1)..add(m.$2);
+    }
+    for (final m in marks) {
+      cuts..add(m.$1)..add(m.$2);
+    }
     var pos = 0;
     for (final s in segs) {
-      final base = TextStyle(fontStyle: s.italic ? FontStyle.italic : null, fontWeight: s.bold ? FontWeight.w700 : null);
-      final start = pos, end = pos + s.text.length;
-      var cur = start;
-      for (final m in ms) {
-        if (m.$2 <= cur || m.$1 >= end) continue;
-        final a = m.$1 < cur ? cur : m.$1;
-        final z = m.$2 > end ? end : m.$2;
-        if (a > cur) out.add(TextSpan(text: s.text.substring(cur - start, a - start), style: base));
-        out.add(TextSpan(text: s.text.substring(a - start, z - start), style: base.merge(hl)));
-        cur = z;
+      cuts.add(pos);
+      pos += s.text.length;
+    }
+    final sorted = cuts.where((c) => c >= 0 && c <= text.length).toList()..sort();
+    final out = <InlineSpan>[];
+    var segStart = 0, si = 0;
+    for (var k = 0; k + 1 < sorted.length; k++) {
+      final a = sorted[k], z = sorted[k + 1];
+      if (z <= a) continue;
+      while (si < segs.length - 1 && a >= segStart + segs[si].text.length) {
+        segStart += segs[si].text.length;
+        si++;
       }
-      if (cur < end) out.add(TextSpan(text: s.text.substring(cur - start), style: base));
-      pos = end;
+      final sg = segs[si];
+      var style = TextStyle(fontStyle: sg.italic ? FontStyle.italic : null, fontWeight: sg.bold ? FontWeight.w700 : null);
+      if (ms.any((m) => m.$1 <= a && m.$2 >= z)) style = style.merge(hl);
+      for (final m in marks) {
+        if (m.$1 <= a && m.$2 >= z) style = style.copyWith(backgroundColor: m.$3);
+      }
+      out.add(TextSpan(text: text.substring(a, z), style: style));
     }
     return TextSpan(children: out);
   }
@@ -557,8 +681,429 @@ class _ReaderScreenState extends State<ReaderScreen> {
     b = b < 0 ? plain.length : b + 1;
     final sentence = plain.substring(a.clamp(0, plain.length), b.clamp(0, plain.length)).trim();
     HapticFeedback.selectionClick();
-    showWordSheet(context, word: word, sentence: sentence.isEmpty ? plain : sentence, bookTitle: book.title);
+    _textActions(word, sentence.isEmpty ? plain : sentence, plain);
   }
+
+  Highlight? _highlightFor(String sentence) {
+    for (final h in _notes.highlights) {
+      if (h.chapter == _chapter && (h.text.contains(sentence) || sentence.contains(h.text))) return h;
+    }
+    return null;
+  }
+
+  /// Menu della frase tenuta premuta: evidenzia, nota, significato, copia, leggi da qui.
+  void _textActions(String word, String sentence, String paragraph) {
+    final existing = _highlightFor(sentence);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: LK.paper,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              decoration: BoxDecoration(border: Border(left: BorderSide(color: LK.gold, width: 3))),
+              child: Text('«$sentence»', maxLines: 4, overflow: TextOverflow.ellipsis, style: LK.body(14.5, height: 1.5, style: FontStyle.italic)),
+            ),
+            const SizedBox(height: 14),
+            Text(existing == null ? 'EVIDENZIA' : 'COLORE', style: LK.label(10, spacing: 1.4)),
+            const SizedBox(height: 8),
+            Row(children: [
+              for (var i = 0; i < Annotations.colors.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      if (existing != null) {
+                        existing.color = i;
+                      } else {
+                        _notes.highlights.add(Highlight(id: Annotations.newId(), chapter: _chapter, frac: _fraction, text: sentence, color: i));
+                      }
+                      Annotations.I.save(book.id);
+                      setState(() {});
+                    },
+                    child: Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: Color(Annotations.colors[i]),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: existing?.color == i ? LK.ink : Colors.transparent, width: 2.5),
+                      ),
+                    ),
+                  ),
+                ),
+            ]),
+            const SizedBox(height: 10),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              _action(Icons.edit_note, existing?.note.isNotEmpty == true ? 'Modifica nota' : 'Aggiungi nota', () async {
+                Navigator.pop(ctx);
+                final h = existing ?? Highlight(id: Annotations.newId(), chapter: _chapter, frac: _fraction, text: sentence);
+                final note = await _askNote(h.note);
+                if (note == null) return;
+                h.note = note;
+                if (existing == null) _notes.highlights.add(h);
+                await Annotations.I.save(book.id);
+                setState(() {});
+              }),
+              _action(existing?.favorite == true ? Icons.star : Icons.star_border, existing?.favorite == true ? 'Tra le preferite' : 'Citazione preferita', () async {
+                Navigator.pop(ctx);
+                final h = existing ?? Highlight(id: Annotations.newId(), chapter: _chapter, frac: _fraction, text: sentence);
+                h.favorite = !h.favorite;
+                if (existing == null) _notes.highlights.add(h);
+                await Annotations.I.save(book.id);
+                setState(() {});
+              }),
+              _action(Icons.translate, 'Significato di «$word»', () {
+                Navigator.pop(ctx);
+                showWordSheet(context, word: word, sentence: sentence, bookTitle: book.title);
+              }),
+              _action(Icons.ios_share, 'Condividi come immagine', () {
+                Navigator.pop(ctx);
+                showQuoteShare(context, book: book, text: sentence, chapter: book.chapters.isEmpty ? null : book.chapters[_chapter].title);
+              }),
+              _action(Icons.copy, 'Copia', () {
+                Navigator.pop(ctx);
+                Clipboard.setData(ClipboardData(text: sentence));
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Frase copiata')));
+              }),
+              _action(Icons.record_voice_over_outlined, 'Leggi da qui', () {
+                Navigator.pop(ctx);
+                _startTts(fromText: paragraph);
+              }),
+              if (existing != null)
+                _action(Icons.delete_outline, 'Rimuovi evidenziazione', () {
+                  Navigator.pop(ctx);
+                  _notes.highlights.remove(existing);
+                  Annotations.I.save(book.id);
+                  setState(() {});
+                }),
+            ]),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _action(IconData icon, String label, VoidCallback onTap) => ActionChip(
+        avatar: Icon(icon, size: 18, color: LK.accent),
+        label: Text(label, style: LK.body(13)),
+        backgroundColor: LK.card,
+        side: BorderSide(color: LK.border),
+        onPressed: onTap,
+      );
+
+  Future<String?> _askNote(String initial) {
+    final c = TextEditingController(text: initial);
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: LK.paper,
+        title: Text('Nota', style: LK.display(20)),
+        content: TextField(controller: c, autofocus: true, maxLines: 5, minLines: 3, decoration: const InputDecoration(hintText: 'Cosa ne pensi?')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annulla')),
+          FilledButton(style: FilledButton.styleFrom(backgroundColor: LK.accent), onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('Salva')),
+        ],
+      ),
+    );
+  }
+
+  // ---------- segnalibri ----------
+
+  Bookmark? get _bookmarkHere {
+    for (final bm in _notes.bookmarks) {
+      if (bm.chapter != _chapter) continue;
+      if (paged && _pages.length > 1) {
+        final p = (bm.frac * (_pages.length - 1)).round();
+        if (p == _page || (_spread && p == _page + 1)) return bm;
+      } else if ((bm.frac - _fraction).abs() < 0.03) {
+        return bm;
+      }
+    }
+    return null;
+  }
+
+  String get _excerptHere {
+    if (paged && _page < _pages.length) {
+      final t = _pages[_page].blocks.where((b) => b.segs.isNotEmpty && b.level == 0).map(_blockPlain).join(' ').trim();
+      return t.length > 140 ? '${t.substring(0, 140)}…' : t;
+    }
+    final t = _paras.where((p) => p.level == 0 && p.image == null).map((p) => p.plain).join(' ');
+    final i = (t.length * _fraction).round().clamp(0, t.length);
+    final x = t.substring(i, (i + 140).clamp(0, t.length));
+    return '$x…';
+  }
+
+  void _toggleBookmark() {
+    final bm = _bookmarkHere;
+    if (bm != null) {
+      _notes.bookmarks.remove(bm);
+    } else {
+      _notes.bookmarks.add(Bookmark(id: Annotations.newId(), chapter: _chapter, frac: _fraction, excerpt: _excerptHere));
+      HapticFeedback.lightImpact();
+    }
+    Annotations.I.save(book.id);
+    setState(() {});
+  }
+
+  // ---------- ricerca nel libro ----------
+
+  void _searchSheet() {
+    setState(() => _ui = false);
+    final q = TextEditingController(text: _flash ?? '');
+    var results = <(int, String, String)>[]; // capitolo, anteprima, testo trovato
+    var busy = false;
+    var run = 0;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: LK.paper,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+        Future<void> search(String text) async {
+          final query = text.trim();
+          final my = ++run;
+          if (query.length < 2 || _epub == null) {
+            setSheet(() => results = []);
+            return;
+          }
+          setSheet(() => busy = true);
+          final out = <(int, String, String)>[];
+          final lq = query.toLowerCase();
+          for (var c = 0; c < book.chapters.length && out.length < 200; c++) {
+            final paras = _epub!.chapterParas(book.chapters[c]);
+            for (final p in paras) {
+              final t = p.plain;
+              final lt = t.toLowerCase();
+              var i = lt.indexOf(lq);
+              while (i >= 0 && out.length < 200) {
+                final a = (i - 50).clamp(0, t.length), z = (i + query.length + 70).clamp(0, t.length);
+                out.add((c, '${a > 0 ? '…' : ''}${t.substring(a, z)}${z < t.length ? '…' : ''}', t.substring(i, i + query.length)));
+                i = lt.indexOf(lq, i + query.length);
+              }
+            }
+            if (c % 5 == 4) {
+              await Future<void>.delayed(Duration.zero);
+              if (my != run) return;
+            }
+          }
+          if (my != run) return;
+          setSheet(() {
+            results = out;
+            busy = false;
+          });
+        }
+
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: SizedBox(
+            height: MediaQuery.of(ctx).size.height * 0.75,
+            child: Column(children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: TextField(
+                  controller: q,
+                  autofocus: true,
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: search,
+                  onChanged: (v) => v.trim().length >= 3 ? search(v) : null,
+                  decoration: InputDecoration(
+                    hintText: 'Cerca nel libro…',
+                    prefixIcon: Icon(Icons.search, color: LK.muted),
+                    filled: true,
+                    fillColor: LK.card,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: LK.border)),
+                  ),
+                ),
+              ),
+              if (busy) LinearProgressIndicator(color: LK.accent, backgroundColor: LK.line),
+              if (!busy && q.text.trim().length >= 2)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(results.isEmpty ? 'Nessun risultato' : '${results.length}${results.length >= 200 ? '+' : ''} risultati', style: LK.label(10, spacing: 1)),
+                  ),
+                ),
+              Expanded(
+                child: ListView.separated(
+                  itemCount: results.length,
+                  separatorBuilder: (_, __) => Divider(height: 1, color: LK.line),
+                  itemBuilder: (ctx, i) {
+                    final r = results[i];
+                    final ql = q.text.trim().toLowerCase();
+                    final at = r.$2.toLowerCase().indexOf(ql);
+                    return ListTile(
+                      title: Text(book.chapters[r.$1].title, style: LK.label(10, color: LK.accent, spacing: 0.6)),
+                      subtitle: at < 0
+                          ? Text(r.$2, style: LK.body(14))
+                          : Text.rich(TextSpan(style: LK.body(14, color: LK.ink), children: [
+                              TextSpan(text: r.$2.substring(0, at)),
+                              TextSpan(text: r.$2.substring(at, at + ql.length), style: TextStyle(backgroundColor: LK.accent.withValues(alpha: 0.22), fontWeight: FontWeight.w600)),
+                              TextSpan(text: r.$2.substring(at + ql.length)),
+                            ])),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        setState(() => _flash = r.$3);
+                        final snippet = r.$2.replaceAll('…', '');
+                        _goToText(r.$1, snippet.length > 40 ? snippet.substring(snippet.toLowerCase().indexOf(ql).clamp(0, snippet.length)) : snippet);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ]),
+          ),
+        );
+      }),
+    );
+  }
+
+  // ---------- lettura ad alta voce ----------
+
+  /// Testi da leggere, dalla pagina attuale (o dal paragrafo [fromText]) in poi.
+  List<(int, String)> _ttsQueue({String? fromText}) {
+    final out = <(int, String)>[];
+    if (paged) {
+      final from = fromText == null ? -1 : _findPage(fromText.replaceAll(Hyphen.soft, ''));
+      var started = fromText == null;
+      for (var i = (from >= 0 ? from : _page); i < _pages.length; i++) {
+        for (final b in _pages[i].blocks) {
+          if (b.chapterTitle != null) {
+            out.add((i, b.chapterTitle!));
+            continue;
+          }
+          if (b.segs.isEmpty) continue;
+          final t = _blockPlain(b);
+          if (!started) {
+            if (fromText!.replaceAll(Hyphen.soft, '').contains(t) || t.contains(fromText.replaceAll(Hyphen.soft, ''))) started = true;
+            if (!started) continue;
+          }
+          out.add((i, t));
+        }
+      }
+    } else {
+      final t = _paras.where((p) => p.image == null).map((p) => p.plain.replaceAll(Hyphen.soft, '')).toList();
+      var i = fromText == null ? (t.length * _fraction).floor() : t.indexWhere((x) => x.contains(fromText.replaceAll(Hyphen.soft, '')));
+      for (i = i.clamp(0, t.length); i < t.length; i++) {
+        out.add((-1, t[i]));
+      }
+    }
+    return out;
+  }
+
+  Future<void> _startTts({String? fromText}) async {
+    final run = ++_ttsRun;
+    await _tts.stop();
+    try {
+      await _tts.setLanguage('it-IT');
+      await _tts.setSpeechRate(_ttsRate);
+      await _tts.awaitSpeakCompletion(true);
+    } catch (_) {}
+    try {
+      WakelockPlus.enable();
+    } catch (_) {}
+    setState(() {
+      _speaking = true;
+      _ttsPaused = false;
+      _ui = false;
+    });
+    var queue = _ttsQueue(fromText: fromText);
+    while (run == _ttsRun) {
+      for (final (page, text) in queue) {
+        if (run != _ttsRun) return;
+        if (paged && page >= 0 && page != _page && !(_spread && page == _page + 1)) _setPage(page - (_spread ? page % 2 : 0));
+        setState(() => _ttsText = text);
+        // frasi lunghe divise: il motore ha un limite di caratteri
+        for (final part in _chunks(text)) {
+          if (run != _ttsRun) return;
+          await _tts.speak(part);
+        }
+      }
+      if (run != _ttsRun) return;
+      // capitolo finito: passo al successivo e continuo
+      if (_chapter >= book.chapters.length - 1) break;
+      store.chapterFinished();
+      await _loadChapter(_chapter + 1);
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      queue = _ttsQueue();
+      if (queue.isEmpty) break;
+    }
+    if (run == _ttsRun) _stopTts();
+  }
+
+  List<String> _chunks(String t) {
+    if (t.length <= 3500) return [t];
+    final out = <String>[];
+    var rest = t;
+    while (rest.length > 3500) {
+      var cut = rest.lastIndexOf(RegExp(r'[.!?…]\s'), 3500);
+      if (cut < 500) cut = 3500;
+      out.add(rest.substring(0, cut + 1));
+      rest = rest.substring(cut + 1);
+    }
+    out.add(rest);
+    return out;
+  }
+
+  void _stopTts() {
+    _ttsRun++;
+    _tts.stop();
+    _applySystem();
+    if (mounted) {
+      setState(() {
+        _speaking = false;
+        _ttsPaused = false;
+        _ttsText = null;
+      });
+    }
+  }
+
+  void _pauseTts() {
+    if (_ttsPaused) {
+      final text = _ttsText;
+      setState(() => _ttsPaused = false);
+      _startTts(fromText: text);
+    } else {
+      _ttsRun++;
+      _tts.stop();
+      setState(() => _ttsPaused = true);
+    }
+  }
+
+  Widget _ttsBar(ReaderTheme t, EdgeInsets pad) => Container(
+        margin: EdgeInsets.fromLTRB(12, 0, 12, pad.bottom + 34),
+        padding: const EdgeInsets.fromLTRB(14, 4, 4, 4),
+        decoration: BoxDecoration(color: t.bg, borderRadius: BorderRadius.circular(30), border: Border.all(color: t.line), boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 14, offset: Offset(0, 4))]),
+        child: Row(children: [
+          Icon(Icons.graphic_eq, color: t.accent, size: 20),
+          const SizedBox(width: 8),
+          Expanded(child: Text(_ttsPaused ? 'In pausa' : 'Lettura ad alta voce', style: LK.label(10.5, color: t.ink, spacing: 0.4))),
+          PopupMenuButton<double>(
+            tooltip: 'Velocità',
+            color: LK.card,
+            initialValue: _ttsRate,
+            onSelected: (v) {
+              _ttsRate = v;
+              _tts.setSpeechRate(v);
+              setState(() {});
+            },
+            itemBuilder: (_) => [
+              for (final (v, l) in const [(0.35, 'Lenta'), (0.5, 'Normale'), (0.6, 'Veloce'), (0.75, 'Molto veloce')])
+                PopupMenuItem(value: v, child: Text(l, style: LK.body(14))),
+            ],
+            child: Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: Text('${(_ttsRate * 2).toStringAsFixed(1)}×', style: LK.label(11, color: t.muted, spacing: 0))),
+          ),
+          IconButton(onPressed: _pauseTts, icon: Icon(_ttsPaused ? Icons.play_arrow : Icons.pause, color: t.ink)),
+          IconButton(onPressed: _stopTts, icon: Icon(Icons.close, color: t.muted)),
+        ]),
+      );
 
   // ---------- impostazioni ----------
 
@@ -692,32 +1237,138 @@ class _ReaderScreenState extends State<ReaderScreen> {
   ReaderTheme get _theme => ReaderTheme.byName(LK.dark ? 'Notte' : prefs.theme);
   TextAlign get _align => prefs.justify ? TextAlign.justify : TextAlign.left;
 
-  void _chaptersSheet() {
+  void _chaptersSheet({int tab = 0}) {
+    setState(() => _ui = false);
     showModalBottomSheet(
       context: context,
       backgroundColor: LK.paper,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (ctx) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.7,
-        builder: (ctx, scroll) => ListView.builder(
-          controller: scroll,
-          itemCount: book.chapters.length,
-          itemBuilder: (ctx, i) => ListTile(
-            leading: Text('${i + 1}', style: LK.display(15, color: LK.accent)),
-            title: Text(book.chapters[i].title, style: LK.body(15, color: i == _chapter ? LK.accent : LK.ink)),
-            trailing: i == _chapter ? Icon(Icons.bookmark, color: LK.accent, size: 18) : null,
-            onTap: () {
-              Navigator.pop(ctx);
-              setState(() => _ui = false);
-              _loadChapter(i);
-            },
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+        final bms = [..._notes.bookmarks]..sort((a, b) => a.chapter != b.chapter ? a.chapter.compareTo(b.chapter) : a.frac.compareTo(b.frac));
+        final hls = [..._notes.highlights]..sort((a, b) => a.chapter != b.chapter ? a.chapter.compareTo(b.chapter) : a.frac.compareTo(b.frac));
+        String chTitle(int c) => c < book.chapters.length ? book.chapters[c].title : '';
+        return SizedBox(
+          height: MediaQuery.of(ctx).size.height * 0.78,
+          child: DefaultTabController(
+            length: 3,
+            initialIndex: tab,
+            child: Column(children: [
+              TabBar(
+                labelColor: LK.accent,
+                unselectedLabelColor: LK.muted,
+                indicatorColor: LK.accent,
+                labelStyle: LK.label(11, spacing: 1),
+                tabs: [
+                  const Tab(text: 'CAPITOLI'),
+                  Tab(text: 'SEGNALIBRI${bms.isEmpty ? '' : ' ${bms.length}'}'),
+                  Tab(text: 'NOTE${hls.isEmpty ? '' : ' ${hls.length}'}'),
+                ],
+              ),
+              Expanded(
+                child: TabBarView(children: [
+                  ListView.builder(
+                    itemCount: book.chapters.length,
+                    itemBuilder: (ctx, i) => ListTile(
+                      leading: Text('${i + 1}', style: LK.display(15, color: LK.accent)),
+                      title: Text(book.chapters[i].title, style: LK.body(15, color: i == _chapter ? LK.accent : LK.ink)),
+                      trailing: i == _chapter ? Icon(Icons.bookmark, color: LK.accent, size: 18) : null,
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _loadChapter(i);
+                      },
+                    ),
+                  ),
+                  bms.isEmpty
+                      ? _emptyTab('Nessun segnalibro. Tocca il nastro in alto mentre leggi per segnare una pagina.')
+                      : ListView.separated(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          itemCount: bms.length,
+                          separatorBuilder: (_, __) => Divider(height: 1, color: LK.line),
+                          itemBuilder: (ctx, i) {
+                            final bm = bms[i];
+                            return ListTile(
+                              leading: Icon(Icons.bookmark, color: LK.accent),
+                              title: Text(chTitle(bm.chapter), style: LK.label(10, color: LK.accent, spacing: 0.6)),
+                              subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text(bm.excerpt, maxLines: 2, overflow: TextOverflow.ellipsis, style: LK.body(14)),
+                                if (bm.note.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text(bm.note, style: LK.body(13, color: LK.muted, style: FontStyle.italic))),
+                              ]),
+                              trailing: PopupMenuButton<String>(
+                                color: LK.card,
+                                onSelected: (v) async {
+                                  if (v == 'note') {
+                                    final n = await _askNote(bm.note);
+                                    if (n != null) bm.note = n;
+                                  } else {
+                                    _notes.bookmarks.remove(bm);
+                                  }
+                                  await Annotations.I.save(book.id);
+                                  setSheet(() {});
+                                  setState(() {});
+                                },
+                                itemBuilder: (_) => [
+                                  PopupMenuItem(value: 'note', child: Text(bm.note.isEmpty ? 'Aggiungi nota' : 'Modifica nota', style: LK.body(14))),
+                                  PopupMenuItem(value: 'del', child: Text('Elimina', style: LK.body(14))),
+                                ],
+                              ),
+                              onTap: () {
+                                Navigator.pop(ctx);
+                                if (bm.excerpt.length > 20) {
+                                  _goToText(bm.chapter, bm.excerpt.replaceAll('…', ''), frac: bm.frac);
+                                } else {
+                                  _loadChapter(bm.chapter, frac: bm.frac);
+                                }
+                              },
+                            );
+                          },
+                        ),
+                  hls.isEmpty
+                      ? _emptyTab('Nessuna evidenziazione. Tieni premuta una frase mentre leggi per evidenziarla o scriverci una nota.')
+                      : ListView.separated(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          itemCount: hls.length,
+                          separatorBuilder: (_, __) => Divider(height: 1, color: LK.line),
+                          itemBuilder: (ctx, i) {
+                            final h = hls[i];
+                            return ListTile(
+                              leading: Container(width: 6, height: 40, decoration: BoxDecoration(color: Color(Annotations.colors[h.color % 4]), borderRadius: BorderRadius.circular(3))),
+                              title: Row(children: [
+                                Expanded(child: Text(chTitle(h.chapter), style: LK.label(10, color: LK.accent, spacing: 0.6))),
+                                if (h.favorite) Icon(Icons.star, size: 14, color: LK.gold),
+                              ]),
+                              subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text('«${h.text}»', maxLines: 3, overflow: TextOverflow.ellipsis, style: LK.body(14, style: FontStyle.italic)),
+                                if (h.note.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text(h.note, style: LK.body(13, color: LK.muted))),
+                              ]),
+                              trailing: IconButton(
+                                icon: Icon(Icons.delete_outline, color: LK.muted, size: 20),
+                                onPressed: () async {
+                                  _notes.highlights.remove(h);
+                                  await Annotations.I.save(book.id);
+                                  setSheet(() {});
+                                  setState(() {});
+                                },
+                              ),
+                              onTap: () {
+                                Navigator.pop(ctx);
+                                _goToText(h.chapter, h.text, frac: h.frac);
+                              },
+                            );
+                          },
+                        ),
+                ]),
+              ),
+            ]),
           ),
-        ),
-      ),
+        );
+      }),
     );
   }
+
+  Widget _emptyTab(String t) => Center(
+        child: Padding(padding: const EdgeInsets.all(30), child: Text(t, textAlign: TextAlign.center, style: LK.body(14, color: LK.muted, style: FontStyle.italic))),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -766,6 +1417,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
               ),
             ]),
           ),
+          // Nastro del segnalibro sulla pagina
+          if (_bookmarkHere != null)
+            Positioned(
+              right: prefs.marginPx * 0.6,
+              top: pad.top,
+              child: IgnorePointer(child: CustomPaint(size: const Size(16, 34), painter: _Ribbon(t.accent))),
+            ),
+          if (_speaking && !_ui) Positioned(left: 0, right: 0, bottom: 0, child: _ttsBar(t, pad)),
           // Luminosità e luce calda
           IgnorePointer(
             child: Container(color: Colors.black.withValues(alpha: (1 - prefs.brightness) * 0.85)),
@@ -786,9 +1445,27 @@ class _ReaderScreenState extends State<ReaderScreen> {
               child: Row(children: [
                 IconButton(icon: LKIcon(LKGlyph.back, color: t.ink), onPressed: () => Navigator.pop(context)),
                 Expanded(child: Text(book.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.display(16, color: t.ink))),
-                IconButton(tooltip: 'Riassunto', icon: LKIcon(LKGlyph.recap, color: t.ink), onPressed: _showRecap),
-                IconButton(tooltip: 'Capitoli', icon: LKIcon(LKGlyph.chapters, color: t.ink), onPressed: _chaptersSheet),
+                IconButton(tooltip: 'Cerca nel libro', icon: LKIcon(LKGlyph.search, color: t.ink), onPressed: _searchSheet),
+                IconButton(
+                  tooltip: 'Segnalibro',
+                  icon: Icon(_bookmarkHere != null ? Icons.bookmark : Icons.bookmark_border, color: _bookmarkHere != null ? t.accent : t.ink),
+                  onPressed: _toggleBookmark,
+                ),
+                IconButton(tooltip: 'Capitoli, segnalibri e note', icon: LKIcon(LKGlyph.chapters, color: t.ink), onPressed: _chaptersSheet),
                 TextButton(onPressed: _settings, child: Text('Aa', style: LK.display(18, color: t.ink))),
+                PopupMenuButton<String>(
+                  color: LK.card,
+                  icon: Icon(Icons.more_vert, color: t.ink),
+                  onSelected: (v) {
+                    setState(() => _ui = false);
+                    if (v == 'recap') _showRecap();
+                    if (v == 'tts') _startTts();
+                  },
+                  itemBuilder: (_) => [
+                    PopupMenuItem(value: 'tts', child: Text('Leggi ad alta voce', style: LK.body(14))),
+                    PopupMenuItem(value: 'recap', child: Text('Riassunto dei capitoli precedenti', style: LK.body(14))),
+                  ],
+                ),
               ]),
             ),
           ),
@@ -1024,6 +1701,26 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 }
 
+
+class _Ribbon extends CustomPainter {
+  final Color color;
+  _Ribbon(this.color);
+  @override
+  void paint(Canvas c, Size s) {
+    c.drawPath(
+        Path()
+          ..moveTo(0, 0)
+          ..lineTo(s.width, 0)
+          ..lineTo(s.width, s.height)
+          ..lineTo(s.width / 2, s.height - 6)
+          ..lineTo(0, s.height)
+          ..close(),
+        Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(_Ribbon old) => old.color != color;
+}
 
 /// Fregio al posto degli asterischi tra una scena e l'altra.
 class _Fleuron extends StatelessWidget {

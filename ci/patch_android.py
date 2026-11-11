@@ -4,7 +4,7 @@ import os, re
 M = 'android/app/src/main/AndroidManifest.xml'
 m = open(M).read()
 m = m.replace('android:label="lorekeeper"', 'android:label="Lorekeeper"')
-perms = ['INTERNET', 'POST_NOTIFICATIONS', 'RECEIVE_BOOT_COMPLETED']
+perms = ['INTERNET', 'POST_NOTIFICATIONS', 'RECEIVE_BOOT_COMPLETED', 'REQUEST_INSTALL_PACKAGES']
 for p in perms:
     tag = f'<uses-permission android:name="android.permission.{p}"/>'
     if tag not in m:
@@ -22,6 +22,13 @@ receivers = '''
     </application>'''
 if 'ScheduledNotificationReceiver' not in m:
     m = m.replace('</application>', receivers.lstrip('\n'), 1)
+# Lettura ad alta voce: Android 11+ deve poter vedere i motori di sintesi vocale
+TTS = '<intent><action android:name="android.intent.action.TTS_SERVICE"/></intent>'
+if TTS not in m:
+    if '<queries>' in m:
+        m = m.replace('<queries>', '<queries>\n        ' + TTS, 1)
+    else:
+        m = m.replace('<application', '<queries>' + TTS + '</queries>\n    <application', 1)
 open(M, 'w').write(m)
 
 # Desugaring richiesto da flutter_local_notifications
