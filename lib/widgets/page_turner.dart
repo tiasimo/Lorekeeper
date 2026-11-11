@@ -126,6 +126,25 @@ class PageTurnerState extends State<PageTurner> with SingleTickerProviderStateMi
     }
   }
 
+  /// Tocco inoltrato da un paragrafo (coordinate globali).
+  void tapAt(Offset global) {
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    _tap(box.globalToLocal(global));
+  }
+
+  void _tap(Offset local) {
+    final x = local.dx / _w;
+    final back = widget.invertTaps ? 1 : -1;
+    if (widget.tapEdges && x < 0.3) {
+      turn(back);
+    } else if (widget.tapEdges && x > 0.7) {
+      turn(-back);
+    } else {
+      widget.onCenterTap();
+    }
+  }
+
   void _onStart(DragStartDetails d) {
     _startX = d.localPosition.dx;
     _startY = d.localPosition.dy;
@@ -176,17 +195,7 @@ class PageTurnerState extends State<PageTurner> with SingleTickerProviderStateMi
         onHorizontalDragStart: _onStart,
         onHorizontalDragUpdate: _onUpdate,
         onHorizontalDragEnd: _onEnd,
-        onTapUp: (d) {
-          final x = d.localPosition.dx / _w;
-          final back = widget.invertTaps ? 1 : -1;
-          if (widget.tapEdges && x < 0.3) {
-            turn(back);
-          } else if (widget.tapEdges && x > 0.7) {
-            turn(-back);
-          } else {
-            widget.onCenterTap();
-          }
-        },
+        onTapUp: (d) => _tap(d.localPosition),
         child: _dir == 0 ? _page(widget.index) : (widget.animation == 'Scorrimento' ? _slide() : _curl()),
       );
     });

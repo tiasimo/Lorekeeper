@@ -102,6 +102,7 @@ class LibraryStore extends ChangeNotifier {
   static final LibraryStore I = LibraryStore._();
 
   late Directory _dir;
+  String get dataDir => _dir.path;
   late SharedPreferences _prefs;
   bool loaded = false;
 

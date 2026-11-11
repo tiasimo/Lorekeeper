@@ -6,6 +6,7 @@ import '../theme.dart';
 import '../widgets/common.dart';
 import 'reader_screen.dart';
 import 'spine_editor_screen.dart';
+import 'wiki_screens.dart';
 
 class BookScreen extends StatefulWidget {
   final Book book;
@@ -90,7 +91,7 @@ class _BookScreenState extends State<BookScreen> {
                 if (_tab == 0)
                   for (var i = 0; i < b.chapters.length; i++) _chapterRow(b, i, cur)
                 else
-                  _wikiSoon(),
+                  WikiView(book: b),
               ],
             );
           },
@@ -130,15 +131,4 @@ class _BookScreenState extends State<BookScreen> {
       ),
     );
   }
-
-  Widget _wikiSoon() => Container(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(color: LK.parchment, borderRadius: BorderRadius.circular(10), border: Border.all(color: LK.parchmentBorder)),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('La wiki arriva nel prossimo aggiornamento', style: LK.display(17)),
-          const SizedBox(height: 6),
-          Text('Personaggi, luoghi e termini estratti con Gemini man mano che leggi, condivisi tra i volumi della stessa serie, con schede e grafo delle relazioni.',
-              style: LK.body(13, color: LK.parchmentInk)),
-        ]),
-      );
 }

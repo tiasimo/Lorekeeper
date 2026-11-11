@@ -13,9 +13,11 @@ import '../services/epub.dart';
 import '../services/hyphen.dart';
 import '../services/library_store.dart';
 import '../services/paginator.dart';
+import '../services/wiki.dart';
 import '../theme.dart';
 import '../widgets/page_turner.dart';
 import '../widgets/word_sheet.dart';
+import 'wiki_screens.dart';
 
 class ReaderScreen extends StatefulWidget {
   final Book book;
@@ -55,6 +57,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
   final _watch = Stopwatch();
   Timer? _timeTimer;
 
+  // Wiki: nomi riconosciuti nel testo
+  Wiki? _wiki;
+  RegExp? _nameRe;
+  final Map<String, String> _nameIds = {};
+  DateTime? _prevRead;
+
   Book get book => widget.book;
   ReaderPrefs get prefs => store.reader;
   bool get paged => prefs.mode != 'Scorrimento';
@@ -62,7 +70,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
   @override
   void initState() {
     super.initState();
+    _prevRead = book.lastReadAt;
     _applySystem();
+    WikiStore.I.addListener(_onWiki);
+    WikiStore.I.forBook(book).then((w) {
+      _wiki = w;
+      _onWiki();
+    });
     _open();
     _watch.start();
     _timeTimer = Timer.periodic(const Duration(seconds: 30), (_) => _flushTime());
@@ -105,6 +119,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
       final frac = widget.startChapter == null ? book.lastOffset : 0.0;
       await _loadChapter(start.clamp(0, book.chapters.isEmpty ? 0 : book.chapters.length - 1), frac: frac);
       _measureBook();
+      final prev = _prevRead;
+      if (prev != null && DateTime.now().difference(prev).inHours >= 48 && book.lastChapter > 0) {
+        _showRecap(auto: true);
+      }
     } catch (e) {
       if (mounted) setState(() => _error = 'Non riesco ad aprire il file: $e');
     }
@@ -177,6 +195,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     });
     _pageShownAt = DateTime.now();
     store.setProgress(book, index, _fraction);
+    _onWiki();
+    WikiStore.I.ensure(book);
     if (!paged) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!_scroll.hasClients) return;
@@ -286,9 +306,143 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _timeTimer?.cancel();
     _scroll.dispose();
     _focus.dispose();
+    WikiStore.I.removeListener(_onWiki);
     _restoreSystem();
     store.updateBook(book);
     super.dispose();
+  }
+
+  // ---------- wiki nel testo ----------
+
+  void _onWiki() {
+    final w = _wiki;
+    if (w == null) return;
+    final limit = WikiStore.I.limitFor(book);
+    _nameIds.clear();
+    for (final e in w.entries.values) {
+      if (!e.visibleAt(limit)) continue;
+      for (final n in [e.name, ...e.aliases]) {
+        final k = n.trim();
+        if (k.length >= 3) _nameIds[k.toLowerCase()] = e.id;
+      }
+    }
+    if (_nameIds.isEmpty) {
+      _nameRe = null;
+    } else {
+      final names = _nameIds.keys.toList()..sort((a, b) => b.length.compareTo(a.length));
+      final alts = names.map((n) => n.split('').map(RegExp.escape).join('${Hyphen.soft}?')).join('|');
+      _nameRe = RegExp('(?<![\\p{L}])($alts)(?![\\p{L}])', unicode: true, caseSensitive: false);
+    }
+    if (mounted) setState(() {});
+  }
+
+  List<(int, int, String)> _matches(String text) {
+    final re = _nameRe;
+    if (re == null) return const [];
+    return [
+      for (final m in re.allMatches(text))
+        if (_nameIds[m[0]!.replaceAll(Hyphen.soft, '').toLowerCase()] != null) (m.start, m.end, _nameIds[m[0]!.replaceAll(Hyphen.soft, '').toLowerCase()]!)
+    ];
+  }
+
+  InlineSpan _richSpan(List<TextSeg> segs, ReaderTheme t) {
+    final text = segs.map((s) => s.text).join();
+    final ms = _matches(text);
+    if (ms.isEmpty) return PageStyle.span(segs);
+    final hl = TextStyle(
+      color: Color.lerp(t.ink, t.accent, 0.65),
+      decoration: TextDecoration.underline,
+      decorationStyle: TextDecorationStyle.dotted,
+      decorationColor: t.accent.withValues(alpha: 0.6),
+    );
+    final out = <InlineSpan>[];
+    var pos = 0;
+    for (final s in segs) {
+      final base = TextStyle(fontStyle: s.italic ? FontStyle.italic : null, fontWeight: s.bold ? FontWeight.w700 : null);
+      final start = pos, end = pos + s.text.length;
+      var cur = start;
+      for (final m in ms) {
+        if (m.$2 <= cur || m.$1 >= end) continue;
+        final a = m.$1 < cur ? cur : m.$1;
+        final z = m.$2 > end ? end : m.$2;
+        if (a > cur) out.add(TextSpan(text: s.text.substring(cur - start, a - start), style: base));
+        out.add(TextSpan(text: s.text.substring(a - start, z - start), style: base.merge(hl)));
+        cur = z;
+      }
+      if (cur < end) out.add(TextSpan(text: s.text.substring(cur - start), style: base));
+      pos = end;
+    }
+    return TextSpan(children: out);
+  }
+
+  void _tapText(List<TextSeg> segs, TapUpDetails d, double width, PageStyle st) {
+    final text = segs.map((s) => s.text).join();
+    final ms = _matches(text);
+    if (ms.isNotEmpty && _wiki != null) {
+      final tp = TextPainter(
+        text: TextSpan(style: st.base, children: [PageStyle.span(segs)]),
+        textAlign: _align,
+        textDirection: TextDirection.ltr,
+        textScaler: st.scaler,
+      )..layout(maxWidth: width);
+      final i = tp.getPositionForOffset(d.localPosition).offset;
+      tp.dispose();
+      for (final m in ms) {
+        if (i >= m.$1 && i <= m.$2) {
+          final e = _wiki!.entries[m.$3];
+          if (e != null) {
+            showEntryPeek(context, book, e);
+            return;
+          }
+        }
+      }
+    }
+    if (paged) {
+      _turner.currentState?.tapAt(d.globalPosition);
+    } else {
+      setState(() => _ui = !_ui);
+    }
+  }
+
+  Future<void> _showRecap({bool auto = false}) async {
+    setState(() => _ui = false);
+    final future = WikiStore.I.recap(book);
+    if (!mounted) return;
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: LK.paper,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Nei capitoli precedenti…', style: LK.display(22)),
+            const SizedBox(height: 12),
+            FutureBuilder<String?>(
+              future: future,
+              builder: (ctx, snap) {
+                if (snap.connectionState != ConnectionState.done) {
+                  return Padding(padding: const EdgeInsets.all(16), child: Center(child: CircularProgressIndicator(color: LK.accent)));
+                }
+                final t = snap.data;
+                return Text(
+                  t ?? 'Il riassunto sarà disponibile quando la wiki avrà letto i capitoli precedenti (serve la chiave di Gemini).',
+                  style: LK.body(16, height: 1.55, color: t == null ? LK.muted : LK.ink),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text('RIPRENDI LA LETTURA', style: LK.label(11, color: LK.accent, spacing: 1.2)),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
   }
 
   // ---------- tasti del volume ----------
@@ -569,6 +723,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
               child: Row(children: [
                 IconButton(icon: Icon(Icons.arrow_back, color: t.ink), onPressed: () => Navigator.pop(context)),
                 Expanded(child: Text(book.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.display(16, color: t.ink))),
+                IconButton(tooltip: 'Riassunto', icon: Icon(Icons.history_edu, color: t.ink), onPressed: _showRecap),
                 IconButton(tooltip: 'Capitoli', icon: Icon(Icons.format_list_bulleted, color: t.ink), onPressed: _chaptersSheet),
                 TextButton(onPressed: _settings, child: Text('Aa', style: LK.display(18, color: t.ink))),
               ]),
@@ -725,8 +880,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
     return Padding(
       padding: EdgeInsets.only(bottom: b.cut ? 0 : st.gap),
       child: GestureDetector(
+        onTapUp: (d) => _tapText(b.segs, d, width, st),
         onLongPressStart: (d) => _lookup(b.segs, d.localPosition, width, st, _align),
-        child: Text.rich(PageStyle.span(b.segs), textAlign: _align, style: st.base),
+        child: Text.rich(_richSpan(b.segs, t), textAlign: _align, style: st.base),
       ),
     );
   }
