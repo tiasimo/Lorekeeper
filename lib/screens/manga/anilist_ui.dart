@@ -43,6 +43,7 @@ class _AniListCardState extends State<AniListCard> {
         m.alProgress = e.progress;
         m.alScore = e.score;
         m.alTotal = e.media.chapters ?? m.alTotal;
+        m.syncReadFromAniList();
         MangaStore.I.save();
       }
     } catch (_) {}
@@ -283,6 +284,10 @@ class _AniListTabState extends State<AniListTab> {
     });
     try {
       _list = await AniList.I.myList();
+      final added = MangaStore.I.importAniList(_list!);
+      if (added > 0 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$added ${added == 1 ? 'manga aggiunto' : 'manga aggiunti'} alla libreria')));
+      }
     } catch (e) {
       _err = '$e';
     }
@@ -304,6 +309,11 @@ class _AniListTabState extends State<AniListTab> {
 
   /// Apre un manga della lista: cerca nelle sorgenti installate e lo collega da solo.
   Future<void> _open(AlEntry e) async {
+    final have = MangaStore.I.library.where((m) => m.anilistId == e.media.id).firstOrNull;
+    if (have != null) {
+      Navigator.of(context).push(bookRoute(MangaDetail(manga: have)));
+      return;
+    }
     final picked = await showModalBottomSheet<(Source, DMedia)>(
       context: context,
       backgroundColor: LK.paper,

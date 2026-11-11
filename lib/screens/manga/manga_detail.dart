@@ -35,7 +35,38 @@ class _MangaDetailState extends State<MangaDetail> {
 
   Source? get _source => store.sourceFor(m);
 
+  /// Manga importato da AniList: alla prima apertura si sceglie dove leggerlo.
+  Future<void> _chooseSource() async {
+    await store.ensureBridge();
+    if (!mounted) return;
+    final picked = await showModalBottomSheet<(Source, DMedia)>(
+      context: context,
+      backgroundColor: LK.paper,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => SourceSearchSheet(titles: [m.title]),
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _loading = true);
+    try {
+      final dest = await store.attachSource(m, picked.$1, picked.$2);
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => MangaDetail(manga: dest)));
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = 'Non riesco a collegare la sorgente: $e';
+        });
+      }
+    }
+  }
+
   Future<void> _refresh() async {
+    if (m.pending) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _chooseSource());
+      return;
+    }
     final s = _source;
     if (s == null) {
       if (mounted) setState(() => _error = 'La sorgente «${m.sourceName}» non è installata: reinstallala da Estensioni.');
@@ -60,9 +91,9 @@ class _MangaDetailState extends State<MangaDetail> {
     switch (v) {
       case 'dl5':
         final start = m.lastChapter == null ? 0 : ord.indexWhere((c) => c.url == m.lastChapter).clamp(0, ord.length);
-        dl.enqueue(m, ord.skip(start).where((c) => !m.read.contains(c.url)).take(5));
+        dl.enqueue(m, ord.skip(start).where((c) => !m.isRead(c)).take(5));
       case 'dlUnread':
-        dl.enqueue(m, ord.where((c) => !m.read.contains(c.url)));
+        dl.enqueue(m, ord.where((c) => !m.isRead(c)));
       case 'dlAll':
         dl.enqueue(m, ord);
       case 'delRead':
@@ -122,11 +153,11 @@ class _MangaDetailState extends State<MangaDetail> {
     if (m.lastChapter != null) {
       final i = ord.indexWhere((c) => c.url == m.lastChapter);
       if (i >= 0) {
-        if (m.read.contains(ord[i].url) && i + 1 < ord.length) return (ord[i + 1], 0);
+        if (m.isRead(ord[i]) && i + 1 < ord.length) return (ord[i + 1], 0);
         return (ord[i], m.lastPage);
       }
     }
-    final first = ord.firstWhere((c) => !m.read.contains(c.url), orElse: () => ord.first);
+    final first = ord.firstWhere((c) => !m.isRead(c), orElse: () => ord.first);
     return (first, 0);
   }
 
@@ -190,7 +221,7 @@ class _MangaDetailState extends State<MangaDetail> {
                         const SizedBox(height: 6),
                         Text(m.sourceName.toUpperCase(), style: LK.label(9.5, color: LK.accent, spacing: 1.2)),
                         const SizedBox(height: 4),
-                        Text('${m.chapters.length} capitoli · ${m.read.length} letti', style: LK.label(9.5, spacing: 0.6)),
+                        Text('${m.chapters.length} capitoli · ${m.chapters.where(m.isRead).length} letti', style: LK.label(9.5, spacing: 0.6)),
                       ]),
                     ),
                   ]),
@@ -244,6 +275,23 @@ class _MangaDetailState extends State<MangaDetail> {
                       onPressed: () => setState(() => _newestFirst = !_newestFirst),
                     ),
                   ]),
+                  if (m.pending)
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(color: LK.parchment, borderRadius: BorderRadius.circular(12), border: Border.all(color: LK.parchmentBorder)),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('Arriva dalla tua lista AniList', style: LK.display(16, color: LK.parchmentInk)),
+                        const SizedBox(height: 4),
+                        Text('Scegli una volta sola dove leggerlo: poi i capitoli compaiono qui.', style: LK.body(13.5, color: LK.parchmentInk)),
+                        const SizedBox(height: 10),
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(backgroundColor: LK.accent),
+                          onPressed: _chooseSource,
+                          icon: const Icon(Icons.travel_explore, size: 18),
+                          label: const Text('Scegli la sorgente'),
+                        ),
+                      ]),
+                    ),
                   if (_loading && m.chapters.isEmpty) Padding(padding: const EdgeInsets.all(30), child: Center(child: CircularProgressIndicator(color: LK.accent))),
                   if (_error != null) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(_error!, style: LK.body(13.5, color: LK.accent))),
                 ]),
@@ -255,7 +303,7 @@ class _MangaDetailState extends State<MangaDetail> {
                 itemCount: list.length,
                 itemBuilder: (context, i) {
                   final c = list[i];
-                  final read = m.read.contains(c.url);
+                  final read = m.isRead(c);
                   final current = c.url == m.lastChapter;
                   return ListTile(
                     dense: true,

@@ -65,7 +65,6 @@ class _MangaHomeState extends State<MangaHome> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Stack(children: [
-        if (_tab == 0) Positioned.fill(child: ShelfBackdrop(LibraryStore.I.app.mangaShelfBg)),
         TabletSafeArea(
         child: Column(children: [
           Padding(
@@ -225,7 +224,24 @@ class _LibraryTab extends StatelessWidget {
       showDragHandle: true,
       builder: (ctx) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          ListTile(title: Text(m.title, style: LK.display(17))),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            child: Row(children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: SizedBox(width: 54, height: 78, child: (m.cover ?? '').isEmpty ? Container(color: LK.line) : MangaImage(m.cover!, sourceId: m.sourceId, managerId: m.managerId)),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(m.title, style: LK.display(17)),
+                  const SizedBox(height: 2),
+                  Text(m.pending ? 'Da AniList · sorgente da scegliere' : m.sourceName, style: LK.label(9.5, spacing: 0.6)),
+                  if (m.unread > 0) Text('${m.unread} capitoli da leggere', style: LK.body(12.5, color: LK.muted)),
+                ]),
+              ),
+            ]),
+          ),
           ListTile(
             leading: Icon(Icons.brush_outlined, color: LK.accent),
             title: Text('Modifica il dorso', style: LK.body(15)),
@@ -312,14 +328,22 @@ class _LibraryTab extends StatelessWidget {
   /// Scaffale fisso: i dorsi vanno a capo su più ripiani.
   Widget _shelf(BuildContext context, int kind, List<SavedManga> list) {
     final wood = _shelfWoods[kind];
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    final bg = LibraryStore.I.app.mangaShelfBg;
+    final wall = bg != 'Carta' && shelfBackdrops.contains(bg);
+    return ShelfWall(
+      kind: bg,
+      margin: const EdgeInsets.fromLTRB(8, 12, 8, 4),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Padding(
-        padding: const EdgeInsets.fromLTRB(22, 18, 22, 10),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
-          Text(_shelfNames[kind], style: LK.display(20, color: LK.accent).copyWith(fontStyle: FontStyle.italic)),
-          const SizedBox(width: 10),
-          Text('${list.length} ${list.length == 1 ? 'manga' : 'manga'}', style: LK.label(9.5, spacing: 0.8)),
-        ]),
+        padding: EdgeInsets.fromLTRB(wall ? 14 : 22, wall ? 6 : 18, 22, 10),
+        child: shelfTitlePill(
+          Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
+            Text(_shelfNames[kind], style: LK.display(20, color: LK.accent).copyWith(fontStyle: FontStyle.italic)),
+            const SizedBox(width: 10),
+            Text('${list.length} manga', style: LK.label(9.5, spacing: 0.8)),
+          ]),
+          onWall: wall,
+        ),
       ),
       LayoutBuilder(builder: (context, c) {
         final inner = c.maxWidth - 32 - ShelfSide.width * 2 - 20;
@@ -361,7 +385,8 @@ class _LibraryTab extends StatelessWidget {
             ),
         ]);
       }),
-    ]);
+    ]),
+    );
   }
 
   @override

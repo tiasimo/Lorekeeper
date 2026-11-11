@@ -127,3 +127,40 @@ class _BackdropPainter extends CustomPainter {
   @override
   bool shouldRepaint(_BackdropPainter old) => old.kind != kind || old.dark != dark;
 }
+
+/// Parete dietro un gruppo di scaffali (solo lì, non su tutta la pagina).
+class ShelfWall extends StatelessWidget {
+  final String kind;
+  final Widget child;
+  final EdgeInsets margin;
+  const ShelfWall({super.key, required this.kind, required this.child, this.margin = const EdgeInsets.fromLTRB(8, 6, 8, 6)});
+
+  bool get plain => kind == 'Carta' || !shelfBackdrops.contains(kind);
+
+  @override
+  Widget build(BuildContext context) {
+    if (plain) return child;
+    return Container(
+      margin: margin,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: LK.line),
+        boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 10, offset: Offset(0, 4))],
+      ),
+      child: Stack(children: [
+        Positioned.fill(child: ShelfBackdrop(kind)),
+        Padding(padding: const EdgeInsets.only(top: 6, bottom: 12), child: child),
+      ]),
+    );
+  }
+}
+
+/// Titolo del gruppo leggibile su qualsiasi parete.
+Widget shelfTitlePill(Widget child, {required bool onWall}) => onWall
+    ? Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(color: LK.paper.withValues(alpha: 0.88), borderRadius: BorderRadius.circular(20)),
+        child: child,
+      )
+    : child;

@@ -278,7 +278,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
         builder: (context, _) {
           final last = store.lastRead;
           return Stack(children: [
-            Positioned.fill(child: ShelfBackdrop(store.app.shelfBg)),
             SafeArea(
               child: ListView(
                 padding: const EdgeInsets.only(bottom: 120),
@@ -554,25 +553,38 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Widget _shelf() {
     final app = store.app;
+    final bg = app.shelfBg;
+    final wall = bg != 'Carta' && shelfBackdrops.contains(bg);
     if (app.shelfSort != 'Manuale' || app.shelfFilter != 'Tutti') {
-      return _row('_flat', [for (final e in _visible) if (e.startsWith('b:')) e], addButton: true);
+      return ShelfWall(kind: bg, child: _row('_flat', [for (final e in _visible) if (e.startsWith('b:')) e], addButton: true));
     }
     final groups = store.shelfGroups();
-    if (groups.isEmpty) return _row(LibraryStore.singleShelf, const [], addButton: true);
+    if (groups.isEmpty) return ShelfWall(kind: bg, child: _row(LibraryStore.singleShelf, const [], addButton: true));
     return Column(children: [
-      for (var i = 0; i < groups.length; i++) ...[
-        if (groups[i].$2 != null)
-          Padding(
-            padding: EdgeInsets.fromLTRB(24, i == 0 ? 0 : 22, 24, 4),
-            child: Row(children: [
-              Expanded(child: Text(groups[i].$2!, maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.display(18, color: LK.accent, style: FontStyle.italic))),
-              Text('${groups[i].$3.where((e) => e.startsWith('b:')).length} volumi', style: LK.label(10, spacing: 0.6)),
+      for (var i = 0; i < groups.length; i++)
+        Padding(
+          padding: EdgeInsets.only(top: i == 0 ? 0 : (wall ? 8 : 0)),
+          child: ShelfWall(
+            kind: bg,
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              if (groups[i].$2 != null)
+                Padding(
+                  padding: EdgeInsets.fromLTRB(wall ? 14 : 24, i == 0 || wall ? 4 : 22, wall ? 14 : 24, 6),
+                  child: shelfTitlePill(
+                    Row(mainAxisSize: wall ? MainAxisSize.min : MainAxisSize.max, children: [
+                      Flexible(child: Text(groups[i].$2!, maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.display(18, color: LK.accent, style: FontStyle.italic))),
+                      const SizedBox(width: 10),
+                      Text('${groups[i].$3.where((e) => e.startsWith('b:')).length} volumi', style: LK.label(10, spacing: 0.6)),
+                    ]),
+                    onWall: wall,
+                  ),
+                )
+              else
+                SizedBox(height: i == 0 || wall ? 8 : 26),
+              _row(groups[i].$1, groups[i].$3, addButton: i == groups.length - 1),
             ]),
-          )
-        else
-          SizedBox(height: i == 0 ? 0 : 26),
-        _row(groups[i].$1, groups[i].$3, addButton: i == groups.length - 1),
-      ],
+          ),
+        ),
     ]);
   }
 

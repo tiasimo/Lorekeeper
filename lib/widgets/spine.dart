@@ -117,7 +117,9 @@ class SpineView extends StatelessWidget {
       fontWeight: FontWeight.w600,
       letterSpacing: 1.6,
     );
-    final showAuthor = author != null && baseHeight >= 150 && h > 160;
+    // titoli lunghi: vanno a capo su due righe invece di essere tagliati
+    final twoLines = title.length > 18 && baseHeight >= 120;
+    final showAuthor = author != null && baseHeight >= 150 && h > 160 && !twoLines;
 
     final tc = titleColor ?? textColor;
     // Effetto "oro a caldo": riflesso che attraversa le lettere.
@@ -195,7 +197,13 @@ class SpineView extends StatelessWidget {
                         child: foil(
                           Row(mainAxisSize: MainAxisSize.min, children: [
                             Flexible(
-                              child: Text(title.toUpperCase(), maxLines: 1, overflow: TextOverflow.ellipsis, style: titleStyle),
+                              child: Text(
+                                title.toUpperCase(),
+                                maxLines: twoLines ? 2 : 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: twoLines ? titleStyle.copyWith(fontSize: titleStyle.fontSize! * 0.82, letterSpacing: 0.8, height: 1.05) : titleStyle,
+                              ),
                             ),
                             if (showAuthor) ...[
                               Text('  ·  ', style: titleStyle.copyWith(fontSize: titleStyle.fontSize! * 0.7)),

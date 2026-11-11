@@ -102,9 +102,50 @@ class SavedManga {
     return list;
   }
 
-  double get progress => chapters.isEmpty ? 0 : read.length / chapters.length;
+  double get progress {
+    if (chapters.isEmpty) return alTotal != null && alTotal! > 0 ? (alProgress / alTotal!).clamp(0.0, 1.0) : 0;
+    return (chapters.where(isRead).length / chapters.length).clamp(0.0, 1.0);
+  }
 
-  int get unread => (chapters.length - chapters.where((c) => read.contains(c.url)).length).clamp(0, 100000);
+  /// Manga importato da AniList a cui non è ancora stata scelta una sorgente.
+  bool get pending => sourceId.isEmpty;
+
+  /// Ultimo capitolo letto (in app o su AniList).
+  int get readUpTo {
+    var n = alProgress;
+    for (final c in chapters) {
+      if (read.contains(c.url)) {
+        final k = chapterNumber(c);
+        if (k > n) n = k;
+      }
+    }
+    return n;
+  }
+
+  bool isRead(MChapter c) => read.contains(c.url) || (alProgress > 0 && chapterNumber(c) <= alProgress);
+
+  /// Capitoli che mancano: quelli dopo l'ultimo letto.
+  int get unread {
+    if (chapters.isEmpty) return alTotal != null && alTotal! > alProgress ? alTotal! - alProgress : 0;
+    final upTo = readUpTo;
+    final nums = <int>{};
+    for (final c in chapters) {
+      if (read.contains(c.url)) continue;
+      final n = chapterNumber(c);
+      if (n > upTo) nums.add(n);
+    }
+    return nums.length;
+  }
+
+  /// Segna come letti in app i capitoli già letti su AniList.
+  void syncReadFromAniList() {
+    if (alProgress <= 0) return;
+    for (final c in chapters) {
+      if (chapterNumber(c) <= alProgress) read.add(c.url);
+    }
+  }
+
+  String? spineTitle; // titolo corto sul dorso
 
   /// Scaffale: 0 in corso, 1 da leggere, 2 completati.
   int get shelf {
@@ -118,7 +159,7 @@ class SavedManga {
       case 'PAUSED':
         return 0;
     }
-    if (lastReadAt == null && read.isEmpty) return 1;
+    if (lastReadAt == null && read.isEmpty && alProgress == 0) return 1;
     if (chapters.isNotEmpty && unread == 0) return 2;
     return 0;
   }
@@ -140,7 +181,7 @@ class SavedManga {
       addedAt: addedAt,
     );
     b
-      ..title = title
+      ..title = spineTitle ?? title
       ..spineColor = spineColor ?? b.spineColor
       ..spineTextColor = spineTextColor ?? b.spineTextColor
       ..coverSpineColor = coverSpineColor ?? b.coverSpineColor
@@ -162,7 +203,8 @@ class SavedManga {
     spineHeight = b.spineHeight;
     spineWidth = b.spineWidth;
     spineTitleColor = b.spineTitleColor;
-    if (b.title.trim().isNotEmpty) title = b.title.trim();
+    final t = b.title.trim();
+    spineTitle = t.isEmpty || t == title ? null : t;
   }
 
   Map<String, dynamic> toJson() => {
@@ -199,6 +241,7 @@ class SavedManga {
         'stit': spineTitleColor,
         'new': newChapters,
         'cat': categories.toList(),
+        'stt': spineTitle,
       };
 
   factory SavedManga.fromJson(Map j) => SavedManga(
@@ -235,7 +278,8 @@ class SavedManga {
         ..spineWidth = ((j['sw'] as num?) ?? 1).toDouble()
         ..spineTitleColor = j['stit'] as int?
         ..newChapters = (j['new'] as int?) ?? 0
-        ..categories.addAll(((j['cat'] as List?) ?? []).cast<String>());
+        ..categories.addAll(((j['cat'] as List?) ?? []).cast<String>())
+        ..spineTitle = j['stt'] as String?;
 
   /// Numero del capitolo per AniList (che conta i capitoli letti).
   int chapterNumber(MChapter c) {
@@ -412,6 +456,70 @@ class MangaStore extends ChangeNotifier {
     return null;
   }
 
+  /// Mette in libreria tutta la lista AniList (tranne gli abbandonati). La sorgente si sceglie alla prima apertura.
+  int importAniList(List<AlEntry> list) {
+    var added = 0;
+    final linked = {for (final m in _all.values.where((m) => m.inLibrary && m.anilistId != null)) m.anilistId!: m};
+    for (final e in list) {
+      final have = linked[e.media.id];
+      if (have != null) {
+        // aggiorno stato, progressi e voto da AniList
+        have
+          ..alStatus = e.status
+          ..alProgress = e.progress > have.alProgress ? e.progress : have.alProgress
+          ..alScore = e.score
+          ..alTotal = e.media.chapters ?? have.alTotal;
+        have.syncReadFromAniList();
+        continue;
+      }
+      if (e.status == 'DROPPED') continue;
+      final key = 'anilist||${e.media.id}';
+      final m = _all[key] ??= SavedManga(sourceId: '', managerId: 'anilist', sourceName: 'AniList', url: '${e.media.id}', title: e.media.title, cover: e.media.cover);
+      m
+        ..anilistId = e.media.id
+        ..alStatus = e.status
+        ..alProgress = e.progress
+        ..alScore = e.score
+        ..alTotal = e.media.chapters;
+      if (!m.inLibrary) {
+        m.inLibrary = true;
+        added++;
+      }
+    }
+    save();
+    return added;
+  }
+
+  /// Collega a una sorgente un manga importato da AniList: tiene stato, dorso e categorie.
+  Future<SavedManga> attachSource(SavedManga from, Source to, DMedia media) async {
+    final dest = entry(to, media);
+    dest
+      ..inLibrary = true
+      ..addedAt = from.addedAt
+      ..anilistId = from.anilistId
+      ..alStatus = from.alStatus
+      ..alProgress = from.alProgress
+      ..alScore = from.alScore
+      ..alTotal = from.alTotal
+      ..spineColor = from.spineColor ?? dest.spineColor
+      ..spineTextColor = from.spineTextColor ?? dest.spineTextColor
+      ..coverSpineColor = from.coverSpineColor ?? dest.coverSpineColor
+      ..coverSpineTextColor = from.coverSpineTextColor ?? dest.coverSpineTextColor
+      ..spinePalette = from.spinePalette
+      ..spineStyle = from.spineStyle
+      ..spineHeight = from.spineHeight
+      ..spineWidth = from.spineWidth
+      ..spineTitleColor = from.spineTitleColor
+      ..spineTitle = from.spineTitle;
+    dest.categories.addAll(from.categories);
+    // la copertina di AniList resta se la sorgente non ne ha una
+    dest.cover ??= from.cover;
+    _all.remove(from.key);
+    save();
+    await refresh(to, dest);
+    return dest;
+  }
+
   /// Il manga salvato corrispondente (o uno nuovo, non ancora in libreria).
   SavedManga entry(Source s, DMedia media) {
     final mid = s.managerId ?? s.extensionType;
@@ -435,6 +543,7 @@ class MangaStore extends ChangeNotifier {
     m.description = d.description ?? m.description;
     if (d.genre != null && d.genre!.isNotEmpty) m.genres = d.genre!;
     if (d.episodes != null && d.episodes!.isNotEmpty) m.chapters = d.episodes!.map(MChapter.from).toList();
+    m.syncReadFromAniList();
     save();
     return m;
   }
@@ -487,6 +596,7 @@ class MangaStore extends ChangeNotifier {
       m.alStatus = e.status;
       m.alProgress = e.progress;
       m.alScore = e.score;
+      m.syncReadFromAniList();
     } else {
       m.alStatus = null;
       m.alProgress = 0;
@@ -545,7 +655,14 @@ class MangaStore extends ChangeNotifier {
   Future<int> refreshLibrary() async {
     if (refreshing) return 0;
     await load();
-    final list = library;
+    // prima riallineo stato e progressi da AniList (e aggiungo i manga nuovi della lista)
+    await AniList.I.load();
+    if (AniList.I.loggedIn) {
+      try {
+        importAniList(await AniList.I.myList());
+      } catch (_) {}
+    }
+    final list = library.where((m) => !m.pending).toList();
     if (list.isEmpty) return 0;
     await ensureBridge();
     refreshing = true;
@@ -598,7 +715,8 @@ class MangaStore extends ChangeNotifier {
   /// Aggiornamento automatico: al massimo ogni 12 ore, all'apertura dell'app.
   Future<int> refreshIfDue() async {
     await load();
-    if (library.isEmpty) return 0;
+    await AniList.I.load();
+    if (library.isEmpty && !AniList.I.loggedIn) return 0;
     final prefs = await SharedPreferences.getInstance();
     final last = prefs.getInt('manga.lastRefresh') ?? 0;
     if (DateTime.now().millisecondsSinceEpoch - last < 12 * 3600 * 1000) return 0;
