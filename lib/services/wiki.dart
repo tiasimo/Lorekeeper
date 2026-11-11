@@ -37,6 +37,9 @@ class WikiEntry {
   String myNotes;
   bool manual; // creata a mano
   String? manualText;
+  /// Dettagli per luoghi e termini (scena, contenitore, categoria, citazione…), con la
+  /// posizione in cui sono emersi: {chiave: {"p": pos, "v": valore}}.
+  final Map<String, Map<String, dynamic>> extra;
 
   WikiEntry({
     required this.id,
@@ -50,7 +53,9 @@ class WikiEntry {
     this.myNotes = '',
     this.manual = false,
     this.manualText,
-  })  : aliases = aliases ?? {},
+    Map<String, Map<String, dynamic>>? extra,
+  })  : extra = extra ?? {},
+        aliases = aliases ?? {},
         notes = notes ?? [],
         roles = roles ?? [],
         descriptions = descriptions ?? [];
@@ -79,6 +84,18 @@ class WikiEntry {
     return p;
   }
 
+  dynamic extraAt(String k, int limit) {
+    final x = extra[k];
+    if (x == null) return null;
+    return manual || (x['p'] as int? ?? 0) <= limit ? x['v'] : null;
+  }
+
+  void setExtra(String k, dynamic v, int pos, {bool keepFirst = false}) {
+    if (v == null || (v is String && v.trim().isEmpty) || (v is List && v.isEmpty) || (v is Map && v.isEmpty)) return;
+    if (keepFirst && extra.containsKey(k)) return;
+    extra[k] = {'p': pos, 'v': v};
+  }
+
   WikiNote? get first {
     if (notes.isEmpty) return null;
     return (notes.toList()..sort((a, b) => a.pos.compareTo(b.pos))).first;
@@ -96,6 +113,7 @@ class WikiEntry {
         'myNotes': myNotes,
         'manual': manual,
         'manualText': manualText,
+        'extra': extra,
       };
 
   factory WikiEntry.fromJson(Map j) => WikiEntry(
@@ -110,6 +128,10 @@ class WikiEntry {
         myNotes: (j['myNotes'] as String?) ?? '',
         manual: (j['manual'] as bool?) ?? false,
         manualText: j['manualText'] as String?,
+        extra: {
+          for (final x in ((j['extra'] as Map?) ?? const {}).entries)
+            if (x.value is Map) x.key as String: Map<String, dynamic>.from(x.value as Map)
+        },
       );
 }
 
@@ -207,6 +229,7 @@ class Wiki {
     into.roles.addAll(from.roles);
     if (into.descriptions.isEmpty) into.descriptions.addAll(from.descriptions);
     into.photo ??= from.photo;
+    from.extra.forEach((k, v) => into.extra.putIfAbsent(k, () => v));
     if (from.myNotes.isNotEmpty) into.myNotes = [into.myNotes, from.myNotes].where((x) => x.isNotEmpty).join('\n');
     entries.remove(from.id);
     for (var i = 0; i < relations.length; i++) {
@@ -463,6 +486,73 @@ class WikiStore extends ChangeNotifier {
     }
   }
 
+  final Set<String> _filling = {};
+
+  /// Completa i dettagli grafici (scena dei luoghi, categoria dei termini…) delle voci
+  /// create prima che esistessero: una sola richiesta a Gemini, in silenzio.
+  Future<bool> fillDetails(Book b) async {
+    final key = keyFor(b);
+    if (_running.contains(key) || _filling.contains(key)) return false;
+    final k = await Secrets.geminiKey();
+    if (k == null || k.isEmpty) return false;
+    final w = await forBook(b);
+    final limit = limitFor(b);
+    final todo = w.entries.values
+        .where((e) => !e.manual && e.visibleAt(limit) && ((e.type == 'luogo' && !e.extra.containsKey('scene')) || (e.type == 'termine' && !e.extra.containsKey('category'))))
+        .take(40)
+        .toList();
+    if (todo.isEmpty) return false;
+    _filling.add(key);
+    try {
+      await _throttle();
+      final list = todo.map((e) {
+        final d = e.descriptionAt(limit);
+        final t = d.isNotEmpty ? d : e.notesAt(limit).map((n) => n.text).join(' ');
+        return '${e.id} | ${e.type} | ${e.name} | ${e.roleAt(limit)} | ${t.length > 500 ? t.substring(0, 500) : t}';
+      }).join('\n');
+      final prompt = """
+Per ogni voce della wiki qui sotto (id | tipo | nome | ruolo | descrizione) rispondi SOLO con JSON: {"voci": {"id": {...}}}.
+Per i luoghi: {"kind": tipo in una parola, "inside": luogo più grande che lo contiene (se noto), "scene": {"setting": uno tra villaggio, città, castello, palazzo, accademia, foresta, montagna, mare, lago, deserto, pianura, grotta, rovine, neve, palude, cielo, "time": uno tra alba, giorno, tramonto, notte}}.
+Per i termini: {"category": una tra magia, organizzazione, oggetto, razza, titolo, concetto, "gram": riga in stile dizionario (es. "s. m. · ruolo magico"), "defs": da 1 a 3 significati brevi, "facts": solo per le organizzazioni, chiavi brevi in maiuscolo}.
+Usa solo le informazioni date, in italiano.
+
+$list""";
+      final raw = await Gemini.ask(prompt, maxTokens: 6000, temperature: 0.2, json: true);
+      final data = _parseJson(raw);
+      final voci = (data?['voci'] as Map?) ?? const {};
+      String? str(Object? v) => v is String && v.trim().isNotEmpty && v.trim().length < 240 ? v.trim() : null;
+      for (final e in todo) {
+        final item = voci[e.id];
+        final pos = e.firstPos;
+        if (item is! Map) {
+          e.setExtra(e.type == 'luogo' ? 'scene' : 'category', e.type == 'luogo' ? {'setting': null} : 'concetto', pos);
+          continue;
+        }
+        if (e.type == 'luogo') {
+          e.setExtra('kind', str(item['kind'])?.toLowerCase(), pos);
+          e.setExtra('inside', str(item['inside']), pos);
+          final sc = item['scene'];
+          e.setExtra('scene', sc is Map ? {'setting': str(sc['setting'])?.toLowerCase(), 'time': str(sc['time'])?.toLowerCase()} : {'setting': null}, pos);
+        } else {
+          e.setExtra('category', str(item['category'])?.toLowerCase() ?? 'concetto', pos);
+          e.setExtra('gram', str(item['gram']), pos);
+          e.setExtra('defs', (item['defs'] as List?)?.map(str).whereType<String>().take(3).toList(), pos);
+          final f = item['facts'];
+          if (f is Map) {
+            e.setExtra('facts', {for (final x in f.entries) if (x.key is String && str(x.value) != null) (x.key as String).toUpperCase(): str(x.value)}, pos);
+          }
+        }
+      }
+      await save(w);
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      _filling.remove(key);
+    }
+  }
+
   /// Analisi dei legami subito, fino al capitolo in cui sei (senza aspettare la fine del volume).
   Future<String?> analyzeLinksNow(Book b) async {
     final key = keyFor(b);
@@ -603,7 +693,7 @@ ${plot.isEmpty ? '(non disponibile)' : plot}''';
         .join('\n');
     final prompt = '''
 Sei l'archivista della wiki di un lettore. Leggi il capitolo qui sotto (dal libro «${b.title}», capitolo «${b.chapters[chapter].title}») e rispondi SOLO con JSON in questo formato:
-{"summary": "...", "entries": [{"id": "...", "name": "...", "aliases": ["..."], "type": "personaggio|luogo|termine", "role": "...", "note": "..."}]}
+{"summary": "...", "entries": [{"id": "...", "name": "...", "aliases": ["..."], "type": "personaggio|luogo|termine", "role": "...", "note": "...", "kind": "...", "inside": "...", "scene": {"setting": "...", "time": "..."}, "category": "...", "gram": "...", "defs": ["..."], "quote": "...", "facts": {"...": "..."}}]}
 
 VOCI GIÀ NELLA WIKI (id | nome (altri nomi) | tipo):
 ${known.isEmpty ? '(nessuna)' : known}
@@ -615,6 +705,9 @@ Regole:
 - "name": il nome più completo usato nel testo; "aliases": soprannomi, nomi brevi o titoli usati nel testo.
 - "role": massimo 6 parole (es. "protagonista, ex re reincarnato").
 - "note": tutto ciò che si scopre di nuovo su quella voce in questo capitolo, in italiano, in modo dettagliato (fino a 5 frasi).
+- Solo per i LUOGHI: "kind" = tipo di luogo in una parola (villaggio, città, capitale, regno, continente, foresta, montagna, castello, palazzo, accademia, mare, lago, isola, deserto, grotta, rovine, pianura, dungeon…); "inside" = nome del luogo più grande che lo contiene, se il testo lo dice; "scene" = come appare, con "setting" tra villaggio, città, castello, palazzo, accademia, foresta, montagna, mare, lago, deserto, pianura, grotta, rovine, neve, palude, cielo e "time" tra alba, giorno, tramonto, notte (il momento in cui compare nel capitolo).
+- Solo per i TERMINI: "category" tra magia (incantesimi, poteri, tecniche, concetti magici), organizzazione (gruppi, squadre, gilde, casate, ordini, eserciti, nazioni), oggetto, razza, titolo, concetto; "gram" = riga in stile dizionario (es. "s. m. · ruolo magico"); "defs" = da 1 a 3 significati brevi; "quote" = UNA frase copiata esattamente dal capitolo in cui compare il termine (max 200 caratteri); "facts" solo per le organizzazioni, con chiavi brevi in maiuscolo (es. "BASE": "Città di Xyrus", "CAPO": "...").
+- Ometti i campi che non c'entrano o che il testo non dice.
 - "summary": 2 frasi in italiano su cosa succede nel capitolo.
 
 CAPITOLO:
@@ -665,6 +758,29 @@ $clipped''';
         }
         final role = (item['role'] as String?)?.trim() ?? '';
         if (role.isNotEmpty && (e.roles.isEmpty || e.roles.last.text != role)) e.roles.add(WikiNote(pos, role, b.id, chapter));
+        String? str(Object? v) => v is String && v.trim().isNotEmpty && v.trim().length < 240 ? v.trim() : null;
+        if (e.type == 'luogo') {
+          e.setExtra('kind', str(item['kind'])?.toLowerCase(), pos);
+          e.setExtra('inside', str(item['inside']), pos);
+          final sc = item['scene'];
+          if (sc is Map) e.setExtra('scene', {'setting': str(sc['setting'])?.toLowerCase(), 'time': str(sc['time'])?.toLowerCase()}, pos, keepFirst: true);
+        } else if (e.type == 'termine') {
+          e.setExtra('category', str(item['category'])?.toLowerCase(), pos);
+          e.setExtra('gram', str(item['gram']), pos);
+          final defs = (item['defs'] as List?)?.map(str).whereType<String>().take(3).toList();
+          e.setExtra('defs', defs, pos);
+          final q = str(item['quote']);
+          if (q != null) e.setExtra('quote', {'t': q, 'b': b.id, 'c': chapter}, pos, keepFirst: true);
+          final f = item['facts'];
+          if (f is Map) {
+            final old = Map<String, dynamic>.from((e.extra['facts']?['v'] as Map?) ?? const {});
+            f.forEach((k, v) {
+              final vv = str(v);
+              if (k is String && vv != null) old[k.toUpperCase()] = vv;
+            });
+            e.setExtra('facts', old, pos);
+          }
+        }
       }
       WikiEntry? byRef(String? ref) => ref == null ? null : (w.entries[ref.trim()] ?? w.find(ref));
       for (final r in (data['relations'] as List? ?? const [])) {

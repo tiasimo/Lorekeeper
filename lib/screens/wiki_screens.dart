@@ -10,6 +10,7 @@ import '../services/library_store.dart';
 import '../services/wiki.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/wiki_styles.dart';
 
 const _types = ['personaggio', 'luogo', 'termine'];
 const _typeLabels = ['Personaggi', 'Luoghi', 'Termini'];
@@ -73,6 +74,7 @@ class _WikiViewState extends State<WikiView> {
     WikiStore.I.forBook(widget.book).then((w) {
       if (!mounted) return;
       setState(() => _wiki = w);
+      WikiStore.I.fillDetails(widget.book);
       WikiStore.I.ensure(widget.book);
     });
   }
@@ -109,6 +111,141 @@ class _WikiViewState extends State<WikiView> {
       await WikiStore.I.addManual(widget.book, name.text, type, text.text);
       if (mounted) setState(() {});
     }
+  }
+
+  void _openEntry(WikiEntry e) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => EntryScreen(book: widget.book, entryId: e.id)));
+
+  /// Riga dell'elenco: aspetto diverso per personaggi, luoghi e i tre stili dei termini.
+  Widget _tile(Wiki w, WikiEntry e, int limit) {
+    final b = widget.book;
+    final sub = e.manual ? (e.manualText ?? '') : e.roleAt(limit);
+    final where = e.manual ? 'AGGIUNTA DA TE' : _where(b, e.first);
+    Widget card({required Widget child, Border? border, Color? color}) => Material(
+          color: color ?? LK.card,
+          borderRadius: BorderRadius.circular(12),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () => _openEntry(e),
+            child: Container(decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: border ?? Border.all(color: LK.line)), child: child),
+          ),
+        );
+    if (e.type == 'luogo') {
+      final kind = e.extraAt('kind', limit) as String?;
+      return card(
+        border: Border.all(color: Colors.transparent, width: 0),
+        child: SizedBox(
+          height: 78,
+          child: Stack(children: [
+            Positioned.fill(
+              child: e.photo != null && File(e.photo!).existsSync()
+                  ? Image.file(File(e.photo!), fit: BoxFit.cover)
+                  : Landscape(entry: e, limit: limit, height: 78, fade: false),
+            ),
+            const Positioned.fill(
+              child: DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(colors: [Color(0xC01C1714), Color(0x001C1714)], stops: [0, 0.8]))),
+            ),
+            Positioned(
+              left: 14,
+              top: 0,
+              bottom: 0,
+              right: 40,
+              child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(e.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.display(18, color: const Color(0xFFFFF6E4))),
+                Text([if (kind != null) kind, if (sub.isNotEmpty) sub].join(' · '),
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.body(12.5, color: const Color(0xE6FFF6E4), style: FontStyle.italic)),
+                Text(where, style: LK.label(8.5, color: const Color(0xB3FFF6E4), spacing: 1)),
+              ]),
+            ),
+            const Positioned(right: 10, top: 0, bottom: 0, child: Icon(Icons.chevron_right, color: Color(0xCCFFF6E4))),
+          ]),
+        ),
+      );
+    }
+    if (e.type == 'termine') {
+      final style = termStyle(w, e, limit);
+      final cat = termCategory(e, limit, style);
+      if (style == 'grimorio') {
+        return card(
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Row(children: [
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(gradient: grimoireGradient, borderRadius: BorderRadius.circular(8), border: Border.all(color: grimoireGold)),
+                child: Center(child: Sigil(seed: e.id.hashCode, size: 36)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(e.name, style: LK.display(16)),
+                  Text([cat, if (sub.isNotEmpty) sub].join(' · '), maxLines: 2, overflow: TextOverflow.ellipsis, style: LK.body(13, color: LK.muted)),
+                ]),
+              ),
+              Icon(Icons.chevron_right, color: LK.border),
+            ]),
+          ),
+        );
+      }
+      if (style == 'schedario') {
+        final col = categoryColor(cat);
+        return card(
+          child: Container(
+            decoration: BoxDecoration(border: Border(left: BorderSide(color: col, width: 5))),
+            padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+            child: Row(children: [
+              Icon(categoryIcon(cat), color: col, size: 22),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(e.name, style: LK.display(16)),
+                  Text([cat, if (sub.isNotEmpty) sub].join(' · '), maxLines: 2, overflow: TextOverflow.ellipsis, style: LK.body(12.5, color: LK.muted)),
+                ]),
+              ),
+              Icon(Icons.chevron_right, color: LK.border),
+            ]),
+          ),
+        );
+      }
+      // dizionario
+      return card(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+          child: Row(children: [
+            Text(e.name.characters.first.toUpperCase(), style: LK.display(26, color: LK.accent)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text.rich(
+                TextSpan(children: [
+                  TextSpan(text: e.name, style: LK.display(15.5)),
+                  if (sub.isNotEmpty) TextSpan(text: '  — $sub', style: LK.body(13, color: LK.muted, style: FontStyle.italic)),
+                ]),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Icon(Icons.chevron_right, color: LK.border),
+          ]),
+        ),
+      );
+    }
+    return card(
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Row(children: [
+          WikiAvatar(e),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(e.name, style: LK.display(16)),
+              if (sub.isNotEmpty) Text(sub, maxLines: 2, overflow: TextOverflow.ellipsis, style: LK.body(13, color: LK.muted)),
+              Text(where, style: LK.label(9, spacing: 1)),
+            ]),
+          ),
+          Icon(Icons.chevron_right, color: LK.border),
+        ]),
+      ),
+    );
   }
 
   @override
@@ -238,36 +375,7 @@ class _WikiViewState extends State<WikiView> {
                 style: LK.body(14, color: LK.muted, style: FontStyle.italic),
               ),
             ),
-          for (final e in list)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Material(
-                color: LK.card,
-                borderRadius: BorderRadius.circular(12),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(12),
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => EntryScreen(book: b, entryId: e.id))),
-                  child: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: LK.line)),
-                    child: Row(children: [
-                      WikiAvatar(e),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text(e.name, style: LK.display(16)),
-                          if (e.roleAt(limit).isNotEmpty || e.manual)
-                            Text(e.manual ? (e.manualText ?? '') : e.roleAt(limit),
-                                maxLines: 2, overflow: TextOverflow.ellipsis, style: LK.body(13, color: LK.muted)),
-                          Text(e.manual ? 'AGGIUNTA DA TE' : _where(b, e.first), style: LK.label(9, spacing: 1)),
-                        ]),
-                      ),
-                      Icon(Icons.chevron_right, color: LK.border),
-                    ]),
-                  ),
-                ),
-              ),
-            ),
+          for (final e in list) Padding(padding: const EdgeInsets.only(bottom: 8), child: _tile(w, e, limit)),
         ]);
       },
     );
@@ -421,44 +529,7 @@ class _EntryScreenState extends State<EntryScreen> {
               const Spacer(),
               IconButton(onPressed: () => _edit(e), icon: Icon(Icons.edit_outlined, color: LK.ink)),
             ]),
-            ParchmentCard(
-              seal: e.name,
-              child: Column(children: [
-                GestureDetector(
-                  onTap: () => _pickPhoto(e),
-                  child: OvalPortrait(
-                    width: 132,
-                    height: 168,
-                    child: e.photo != null && File(e.photo!).existsSync()
-                        ? Image.file(File(e.photo!), fit: BoxFit.cover)
-                        : Container(
-                            color: LK.line,
-                            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                              Icon(Icons.add_photo_alternate_outlined, color: LK.muted, size: 28),
-                              const SizedBox(height: 6),
-                              Text('AGGIUNGI\nRITRATTO', textAlign: TextAlign.center, style: LK.label(9, spacing: 1.2)),
-                            ]),
-                          ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Text(typeLabel.substring(0, typeLabel.length - 1).toUpperCase(), style: LK.label(10, color: LK.parchmentInk, spacing: 2.4)),
-                const SizedBox(height: 4),
-                Text(e.name, textAlign: TextAlign.center, style: LK.display(28, color: LK.ink).copyWith(height: 1.1)),
-                if (e.roleAt(limit).isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(e.roleAt(limit), textAlign: TextAlign.center, style: LK.body(14, color: LK.parchmentInk, style: FontStyle.italic)),
-                ],
-              ]),
-            ),
-            const SizedBox(height: 18),
-            Row(children: [
-              _stat('PRIMA APPARIZIONE', e.manual ? '—' : _where(b, e.first).toLowerCase().replaceAll('cap.', 'Cap.').replaceAll('vol.', 'Vol.')),
-              const SizedBox(width: 8),
-              _stat('CAPITOLI', '$mentions'),
-              const SizedBox(width: 8),
-              _stat('RELAZIONI', '${rels.length}'),
-            ]),
+            ..._header(w, e, limit, typeLabel, mentions, rels.length),
             if (e.aliases.isNotEmpty) ...[
               const SizedBox(height: 16),
               const SectionLabel('Chiamato anche'),
@@ -481,7 +552,8 @@ class _EntryScreenState extends State<EntryScreen> {
               Text('Ancora nessuna informazione fino al punto in cui sei.', style: LK.body(14, color: LK.muted, style: FontStyle.italic))
             else
               for (final n in notes) Padding(padding: const EdgeInsets.only(bottom: 10), child: Text(n.text, style: LK.body(15, height: 1.55))),
-            if (notes.isNotEmpty && e.descriptionAt(limit).isNotEmpty)
+            ..._afterDescription(w, e, limit, notes),
+            if (notes.isNotEmpty && e.descriptionAt(limit).isNotEmpty && e.type != 'luogo')
               Theme(
                 data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
                 child: ExpansionTile(
@@ -567,6 +639,329 @@ class _EntryScreenState extends State<EntryScreen> {
         ),
       ),
     );
+  }
+
+  // ---------- testata diversa per personaggi, luoghi e termini ----------
+
+  List<Widget> _header(Wiki w, WikiEntry e, int limit, String typeLabel, int mentions, int relCount) {
+    final b = widget.book;
+    final first = e.manual ? '—' : _where(b, e.first).toLowerCase().replaceAll('cap.', 'Cap.').replaceAll('vol.', 'Vol.');
+    if (e.type == 'luogo') return _placeHeader(w, e, limit, first, mentions);
+    if (e.type == 'termine') {
+      final style = termStyle(w, e, limit);
+      if (style == 'grimorio') return _grimoireHeader(e, limit);
+      if (style == 'schedario') return _archiveHeader(w, e, limit, first);
+      return _dictionaryHeader(e, limit);
+    }
+    return [
+      ParchmentCard(
+        seal: e.name,
+        child: Column(children: [
+          GestureDetector(
+            onTap: () => _pickPhoto(e),
+            child: OvalPortrait(
+              width: 132,
+              height: 168,
+              child: e.photo != null && File(e.photo!).existsSync()
+                  ? Image.file(File(e.photo!), fit: BoxFit.cover)
+                  : Container(
+                      color: LK.line,
+                      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        Icon(Icons.add_photo_alternate_outlined, color: LK.muted, size: 28),
+                        const SizedBox(height: 6),
+                        Text('AGGIUNGI\nRITRATTO', textAlign: TextAlign.center, style: LK.label(9, spacing: 1.2)),
+                      ]),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(typeLabel.substring(0, typeLabel.length - 1).toUpperCase(), style: LK.label(10, color: LK.parchmentInk, spacing: 2.4)),
+          const SizedBox(height: 4),
+          Text(e.name, textAlign: TextAlign.center, style: LK.display(28, color: LK.ink).copyWith(height: 1.1)),
+          if (e.roleAt(limit).isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(e.roleAt(limit), textAlign: TextAlign.center, style: LK.body(14, color: LK.parchmentInk, style: FontStyle.italic)),
+          ],
+        ]),
+      ),
+      const SizedBox(height: 18),
+      Row(children: [
+        _stat('PRIMA APPARIZIONE', first),
+        const SizedBox(width: 8),
+        _stat('CAPITOLI', '$mentions'),
+        const SizedBox(width: 8),
+        _stat('RELAZIONI', '$relCount'),
+      ]),
+      const SizedBox(height: 0),
+    ];
+  }
+
+  List<Widget> _placeHeader(Wiki w, WikiEntry e, int limit, String first, int mentions) {
+    final path = placePath(w, e, limit);
+    final kind = (e.extraAt('kind', limit) as String?) ?? 'luogo';
+    return [
+      ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Stack(children: [
+          e.photo != null && File(e.photo!).existsSync()
+              ? SizedBox(height: 280, width: double.infinity, child: Image.file(File(e.photo!), fit: BoxFit.cover))
+              : Landscape(entry: e, limit: limit, height: 280),
+          if (e.photo != null)
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.transparent, Colors.black.withValues(alpha: 0.65)], stops: const [0.45, 1])),
+              ),
+            ),
+          Positioned(
+            right: 8,
+            top: 8,
+            child: IconButton(
+              tooltip: 'Usa una tua immagine',
+              onPressed: () => _pickPhoto(e),
+              icon: const Icon(Icons.add_photo_alternate_outlined, color: Color(0xEEFFF6E4)),
+            ),
+          ),
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 14,
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                decoration: BoxDecoration(color: const Color(0x38FFF6E4), borderRadius: BorderRadius.circular(20), border: Border.all(color: const Color(0x80FFF6E4))),
+                child: Text(kind.toUpperCase(), style: LK.label(10, color: const Color(0xFFFFF6E4), spacing: 1.4)),
+              ),
+              const SizedBox(height: 6),
+              Text(e.name, style: LK.display(32, color: const Color(0xFFFFF6E4)).copyWith(shadows: const [Shadow(color: Color(0x66000000), blurRadius: 8, offset: Offset(0, 2))])),
+              if (path.length > 1)
+                Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
+                  for (var i = 0; i < path.length; i++) ...[
+                    if (i > 0) Text('  ›  ', style: LK.body(13, color: const Color(0xCCFFF6E4))),
+                    GestureDetector(
+                      onTap: path[i].id.isEmpty || path[i].id == e.id ? null : () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => EntryScreen(book: widget.book, entryId: path[i].id))),
+                      child: Text(path[i].name, style: LK.body(13, color: const Color(0xEEFFF6E4), style: FontStyle.italic)),
+                    ),
+                  ],
+                ])
+              else if (e.roleAt(limit).isNotEmpty)
+                Text(e.roleAt(limit), style: LK.body(13, color: const Color(0xEEFFF6E4), style: FontStyle.italic)),
+            ]),
+          ),
+        ]),
+      ),
+      const SizedBox(height: 14),
+      Row(children: [
+        _stat('PRIMA MENZIONE', first),
+        const SizedBox(width: 8),
+        _stat('CAPITOLI', '$mentions'),
+      ]),
+    ];
+  }
+
+  List<Widget> _grimoireHeader(WikiEntry e, int limit) {
+    final cat = termCategory(e, limit, 'grimorio');
+    return [
+      Container(
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(gradient: grimoireGradient, borderRadius: BorderRadius.circular(12), boxShadow: const [BoxShadow(color: Color(0x40000000), blurRadius: 18, offset: Offset(0, 8))]),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(18, 22, 18, 22),
+          decoration: BoxDecoration(border: Border.all(color: grimoireGold), borderRadius: BorderRadius.circular(7)),
+          child: Column(children: [
+            Sigil(seed: e.id.hashCode),
+            const SizedBox(height: 10),
+            Text(cat.toUpperCase(), style: LK.label(10, color: grimoireGold, spacing: 2)),
+            const SizedBox(height: 6),
+            Text(e.name, textAlign: TextAlign.center, style: LK.display(28, color: const Color(0xFFF2D88A))),
+            if (e.roleAt(limit).isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(e.roleAt(limit), textAlign: TextAlign.center, style: LK.body(14, color: const Color(0xFFD8C9A8), style: FontStyle.italic)),
+            ],
+          ]),
+        ),
+      ),
+    ];
+  }
+
+  List<Widget> _dictionaryHeader(WikiEntry e, int limit) {
+    final cat = termCategory(e, limit, 'dizionario');
+    final gram = (e.extraAt('gram', limit) as String?) ?? cat;
+    final defs = ((e.extraAt('defs', limit) as List?) ?? const []).whereType<String>().toList();
+    if (defs.isEmpty && e.roleAt(limit).isNotEmpty) defs.add(e.roleAt(limit));
+    final quote = e.extraAt('quote', limit);
+    return [
+      Container(
+        padding: const EdgeInsets.only(bottom: 10),
+        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: LK.border))),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          Text(e.name.characters.first.toUpperCase(), style: LK.display(66, color: LK.accent).copyWith(height: 0.9)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(e.name, style: LK.display(27)),
+              Text(gram, style: LK.body(13, color: LK.muted, style: FontStyle.italic)),
+            ]),
+          ),
+        ]),
+      ),
+      const SizedBox(height: 12),
+      for (var i = 0; i < defs.length; i++)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SizedBox(width: 22, child: Text('${i + 1}.', style: LK.body(15, color: LK.accent))),
+            Expanded(child: Text(defs[i], style: LK.body(15, height: 1.55))),
+          ]),
+        ),
+      if (quote is Map && quote['t'] is String) ...[
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          decoration: BoxDecoration(color: LK.card, border: Border(left: BorderSide(color: LK.gold, width: 3))),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('«${quote['t']}»', style: LK.body(14.5, height: 1.55, style: FontStyle.italic)),
+            const SizedBox(height: 6),
+            Text(_where(widget.book, WikiNote(0, '', (quote['b'] as String?) ?? '', (quote['c'] as int?) ?? 0)), style: LK.label(9, spacing: 1)),
+          ]),
+        ),
+      ],
+    ];
+  }
+
+  List<Widget> _archiveHeader(Wiki w, WikiEntry e, int limit, String first) {
+    final cat = termCategory(e, limit, 'schedario');
+    final col = categoryColor(cat);
+    final facts = <String, String>{};
+    final members = w.groupsAt(limit).entries.where((g) => g.key.toLowerCase() == e.name.toLowerCase() || e.aliases.any((a) => a.toLowerCase() == g.key.toLowerCase())).expand((g) => g.value).toSet();
+    if (members.isNotEmpty) facts['MEMBRI'] = members.map((id) => w.entries[id]?.name).whereType<String>().join(', ');
+    final f = e.extraAt('facts', limit);
+    if (f is Map) {
+      f.forEach((k, v) {
+        if (k is String && v is String && !(k == 'MEMBRI' && facts.containsKey('MEMBRI'))) facts[k] = v;
+      });
+    }
+    facts['PRIMA VOLTA'] = first;
+    return [
+      Align(
+        alignment: Alignment.centerLeft,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(10, 6, 12, 6),
+          decoration: BoxDecoration(color: col, borderRadius: const BorderRadius.vertical(top: Radius.circular(8))),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(categoryIcon(cat), size: 14, color: const Color(0xFFFFF6E4)),
+            const SizedBox(width: 6),
+            Text(cat.toUpperCase(), style: LK.label(10, color: const Color(0xFFFFF6E4), spacing: 1.4)),
+          ]),
+        ),
+      ),
+      ClipRRect(
+        borderRadius: const BorderRadius.only(topRight: Radius.circular(10), bottomLeft: Radius.circular(10), bottomRight: Radius.circular(10)),
+        child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: LK.card,
+          border: Border(top: BorderSide(color: col, width: 4), left: BorderSide(color: LK.border), right: BorderSide(color: LK.border), bottom: BorderSide(color: LK.border)),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(e.name, style: LK.display(28)),
+          if (e.roleAt(limit).isNotEmpty) Text(e.roleAt(limit), style: LK.body(13.5, color: LK.muted, style: FontStyle.italic)),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(border: Border.symmetric(horizontal: BorderSide(color: LK.border))),
+            child: Column(children: [
+              for (final x in facts.entries)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    SizedBox(width: 92, child: Padding(padding: const EdgeInsets.only(top: 3), child: Text(x.key, style: LK.label(9, spacing: 1)))),
+                    Expanded(child: Text(x.value, style: LK.body(13.5))),
+                  ]),
+                ),
+            ]),
+          ),
+        ]),
+      ),
+      ),
+    ];
+  }
+
+  /// Sezioni dopo la descrizione: "Accaduto qui" per i luoghi, "Compare in" e "Vedi anche" per i termini.
+  List<Widget> _afterDescription(Wiki w, WikiEntry e, int limit, List<WikiNote> notes) {
+    final b = widget.book;
+    if (e.type == 'luogo') {
+      final names = [e.name, ...e.aliases.where((a) => a.length >= 4)].map((n) => n.toLowerCase()).toList();
+      final visitors = w.entries.values
+          .where((c) => c.type == 'personaggio' && c.notesAt(limit).any((n) => names.any(n.text.toLowerCase().contains)))
+          .take(8)
+          .toList();
+      return [
+        if (notes.isNotEmpty) ...[
+          const SizedBox(height: 18),
+          const SectionLabel('Accaduto qui'),
+          Container(
+            padding: const EdgeInsets.only(left: 12),
+            decoration: BoxDecoration(border: Border(left: BorderSide(color: LK.gold, width: 2))),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              for (final n in notes)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(_where(b, n), style: LK.label(9, color: LK.accent, spacing: 1)),
+                    const SizedBox(height: 2),
+                    Text(n.text, style: LK.body(14, height: 1.5)),
+                  ]),
+                ),
+            ]),
+          ),
+        ],
+        if (visitors.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          const SectionLabel('Chi ci è stato'),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            for (final v in visitors)
+              InkWell(
+                borderRadius: BorderRadius.circular(22),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => EntryScreen(book: b, entryId: v.id))),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(5, 5, 12, 5),
+                  decoration: BoxDecoration(color: LK.card, borderRadius: BorderRadius.circular(22), border: Border.all(color: LK.border)),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [WikiAvatar(v, size: 26), const SizedBox(width: 8), Text(v.name, style: LK.body(13))]),
+                ),
+              ),
+          ]),
+        ],
+      ];
+    }
+    if (e.type == 'termine') {
+      final style = termStyle(w, e, limit);
+      if (style == 'grimorio') {
+        final chs = notes.map((n) => _where(b, n).toLowerCase().replaceAll('cap.', 'Cap.').replaceAll('vol.', 'Vol.')).toSet().toList();
+        if (chs.isEmpty) return const [];
+        return [
+          const SizedBox(height: 14),
+          const SectionLabel('Compare in'),
+          Text(chs.join(' · '), style: LK.body(13.5, color: LK.muted, style: FontStyle.italic)),
+        ];
+      }
+      if (style == 'dizionario') {
+        final also = seeAlso(w, e, '${e.descriptionAt(limit)} ${notes.map((n) => n.text).join(' ')}', limit);
+        if (also.isEmpty) return const [];
+        return [
+          const SizedBox(height: 14),
+          const SectionLabel('Vedi anche'),
+          Wrap(spacing: 4, runSpacing: 4, children: [
+            for (var i = 0; i < also.length; i++)
+              GestureDetector(
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => EntryScreen(book: b, entryId: also[i].id))),
+                child: Text('${also[i].name}${i < also.length - 1 ? ' ·' : ''}', style: LK.body(14, color: LK.accent)),
+              ),
+          ]),
+        ];
+      }
+    }
+    return const [];
   }
 
   Widget _stat(String l, String v) => Expanded(
