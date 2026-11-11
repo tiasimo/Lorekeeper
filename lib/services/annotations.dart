@@ -60,6 +60,8 @@ class BookNotes {
   String review = '';
   DateTime? finishedAt;
 
+  BookNotes();
+
   Map<String, dynamic> toJson() => {
         'bm': bookmarks.map((b) => b.toJson()).toList(),
         'hl': highlights.map((h) => h.toJson()).toList(),
