@@ -1,16 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../services/library_store.dart';
+import '../services/reminders.dart';
+import '../services/secrets.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
-
-class Secrets {
-  static const _s = FlutterSecureStorage();
-  static Future<String?> geminiKey() => _s.read(key: 'gemini_key');
-  static Future<void> setGeminiKey(String? v) =>
-      v == null || v.trim().isEmpty ? _s.delete(key: 'gemini_key') : _s.write(key: 'gemini_key', value: v.trim());
-}
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -89,6 +83,117 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Text('Sistema segue la modalità chiara o scura del telefono. Di notte anche la lettura passa al tema Notte.',
                 style: LK.body(12, color: LK.muted, style: FontStyle.italic)),
             const SizedBox(height: 26),
+            const SectionLabel('Obiettivo di lettura'),
+            ListenableBuilder(
+              listenable: LibraryStore.I,
+              builder: (context, _) {
+                final app = LibraryStore.I.app;
+                return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('${app.goalMinutes} minuti al giorno', style: LK.body(15)),
+                  Slider(
+                    min: 5,
+                    max: 120,
+                    divisions: 23,
+                    value: app.goalMinutes.toDouble(),
+                    onChanged: (v) {
+                      app.goalMinutes = v.round();
+                      LibraryStore.I.saveAppPrefs();
+                    },
+                    onChangeEnd: (_) {
+                      if (app.reminder) Reminders.schedule(app.reminderHour, app.reminderMinute, app.goalMinutes);
+                    },
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    activeTrackColor: LK.accent,
+                    title: Text('Promemoria giornaliero', style: LK.body(15)),
+                    subtitle: Text(
+                      'Ogni giorno alle ${app.reminderHour.toString().padLeft(2, '0')}:${app.reminderMinute.toString().padLeft(2, '0')}',
+                      style: LK.body(12, color: LK.muted),
+                    ),
+                    value: app.reminder,
+                    onChanged: (v) async {
+                      app.reminder = v;
+                      LibraryStore.I.saveAppPrefs();
+                      if (v) {
+                        final ok = await Reminders.schedule(app.reminderHour, app.reminderMinute, app.goalMinutes);
+                        if (!ok && context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Consenti le notifiche a Lorekeeper per ricevere il promemoria')));
+                        }
+                      } else {
+                        Reminders.cancel();
+                      }
+                    },
+                  ),
+                  if (app.reminder)
+                    TextButton.icon(
+                      icon: Icon(Icons.schedule, color: LK.accent),
+                      label: Text('Cambia orario', style: LK.body(14, color: LK.accent)),
+                      onPressed: () async {
+                        final t = await showTimePicker(context: context, initialTime: TimeOfDay(hour: app.reminderHour, minute: app.reminderMinute));
+                        if (t == null) return;
+                        app.reminderHour = t.hour;
+                        app.reminderMinute = t.minute;
+                        LibraryStore.I.saveAppPrefs();
+                        Reminders.schedule(t.hour, t.minute, app.goalMinutes);
+                      },
+                    ),
+                ]);
+              },
+            ),
+            const SizedBox(height: 26),
+            const SectionLabel('Wiki e Gemini'),
+            ListenableBuilder(
+              listenable: LibraryStore.I,
+              builder: (context, _) {
+                final app = LibraryStore.I.app;
+                const spoil = ['Pagina', 'Capitolo', 'Libro'];
+                const langs = ['Inglese', 'Italiano', 'Spagnolo', 'Francese', 'Tedesco', 'Portoghese', 'Giapponese'];
+                return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Anti-spoiler: la wiki mostra informazioni fino a…', style: LK.body(14)),
+                  const SizedBox(height: 8),
+                  Segmented(
+                    labels: spoil,
+                    selected: spoil.indexOf(app.spoiler).clamp(0, 2),
+                    onChanged: (i) {
+                      app.spoiler = spoil[i];
+                      LibraryStore.I.saveAppPrefs();
+                    },
+                  ),
+                  const SizedBox(height: 4),
+                  Text('Pagina: fin dove sei arrivato · Capitolo: fino alla fine del capitolo · Libro: tutto il volume',
+                      style: LK.body(12, color: LK.muted, style: FontStyle.italic)),
+                  const SizedBox(height: 16),
+                  Row(children: [
+                    Expanded(child: Text('Lingua delle traduzioni', style: LK.body(14))),
+                    DropdownButton<String>(
+                      value: langs.contains(app.language) ? app.language : langs.first,
+                      dropdownColor: LK.card,
+                      items: [for (final l in langs) DropdownMenuItem(value: l, child: Text(l, style: LK.body(14)))],
+                      onChanged: (v) {
+                        if (v == null) return;
+                        app.language = v;
+                        LibraryStore.I.saveAppPrefs();
+                      },
+                    ),
+                  ]),
+                  const SizedBox(height: 4),
+                  Text('Tieni premuta una parola mentre leggi per avere significato o traduzione.', style: LK.body(12, color: LK.muted, style: FontStyle.italic)),
+                  const SizedBox(height: 16),
+                  Text('Modello Gemini', style: LK.body(14)),
+                  const SizedBox(height: 6),
+                  TextFormField(
+                    initialValue: app.geminiModel,
+                    decoration: _dec('gemini-3.5-flash-lite'),
+                    onChanged: (v) {
+                      app.geminiModel = v.trim().isEmpty ? 'gemini-3.5-flash-lite' : v.trim();
+                      LibraryStore.I.saveAppPrefs();
+                    },
+                  ),
+                ]);
+              },
+            ),
+            const SizedBox(height: 26),
             const SectionLabel('Chiave API Gemini'),
             Text(
               'Serve per la wiki e i riassunti. La chiave resta cifrata solo su questo telefono. '
@@ -123,9 +228,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ]),
             const SizedBox(height: 30),
             const SectionLabel('Informazioni'),
-            Text('Lorekeeper 0.1 · il custode delle tue storie', style: LK.body(14)),
+            Text('Lorekeeper 0.3 · il custode delle tue storie', style: LK.body(14)),
             const SizedBox(height: 4),
-            Text('Fase 1: libreria, scaffale, dorsi e lettore. In arrivo: wiki con Gemini, evidenziazioni, lettura ad alta voce, backup e widget.',
+            Text('In arrivo: wiki con Gemini, evidenziazioni e note, lettura ad alta voce, backup e widget.',
                 style: LK.body(13, color: LK.muted)),
           ],
         ),

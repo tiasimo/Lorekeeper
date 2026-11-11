@@ -16,6 +16,9 @@ class PageTurner extends StatefulWidget {
   final bool canGoAfter;
   final VoidCallback onCenterTap;
   final Color background;
+  final String animation; // Arricciatura | Scorrimento | Nessuna
+  final bool tapEdges;
+  final bool invertTaps;
 
   const PageTurner({
     super.key,
@@ -29,13 +32,16 @@ class PageTurner extends StatefulWidget {
     required this.canGoAfter,
     required this.onCenterTap,
     required this.background,
+    this.animation = 'Arricciatura',
+    this.tapEdges = true,
+    this.invertTaps = false,
   });
 
   @override
-  State<PageTurner> createState() => _PageTurnerState();
+  State<PageTurner> createState() => PageTurnerState();
 }
 
-class _PageTurnerState extends State<PageTurner> with SingleTickerProviderStateMixin {
+class PageTurnerState extends State<PageTurner> with SingleTickerProviderStateMixin {
   late final AnimationController _a = AnimationController(vsync: this);
   int _dir = 0; // 1 avanti, -1 indietro
   Size _size = Size.zero;
@@ -105,6 +111,12 @@ class _PageTurnerState extends State<PageTurner> with SingleTickerProviderStateM
 
   void turn(int dir) {
     if (_a.isAnimating || _dir != 0 || !_allowed(dir)) return;
+    if (widget.animation == 'Nessuna') {
+      _dir = dir;
+      _fx = dir == 1 ? -_w : _w;
+      _animateTo(_fx, _fy, commit: true);
+      return;
+    }
     setState(() => _begin(dir, _h * 0.55));
     // piccola inclinazione come quando si gira con un tocco
     if (dir == 1) {
@@ -166,17 +178,35 @@ class _PageTurnerState extends State<PageTurner> with SingleTickerProviderStateM
         onHorizontalDragEnd: _onEnd,
         onTapUp: (d) {
           final x = d.localPosition.dx / _w;
-          if (x < 0.3) {
-            turn(-1);
-          } else if (x > 0.7) {
-            turn(1);
+          final back = widget.invertTaps ? 1 : -1;
+          if (widget.tapEdges && x < 0.3) {
+            turn(back);
+          } else if (widget.tapEdges && x > 0.7) {
+            turn(-back);
           } else {
             widget.onCenterTap();
           }
         },
-        child: _dir == 0 ? _page(widget.index) : _curl(),
+        child: _dir == 0 ? _page(widget.index) : (widget.animation == 'Scorrimento' ? _slide() : _curl()),
       );
     });
+  }
+
+  /// Scorrimento laterale semplice: il foglio scivola via e scopre quello sotto.
+  Widget _slide() {
+    final top = _dir == 1 ? widget.index : widget.index - 1;
+    final under = _dir == 1 ? widget.index + 1 : widget.index;
+    final off = (_fx - _w) / 2; // da 0 a -_w
+    return Stack(clipBehavior: Clip.hardEdge, children: [
+      _page(under),
+      Transform.translate(
+        offset: Offset(off, 0),
+        child: DecoratedBox(
+          decoration: const BoxDecoration(boxShadow: [BoxShadow(color: Color(0x40000000), blurRadius: 16)]),
+          child: _page(top),
+        ),
+      ),
+    ]);
   }
 
   Widget _curl() {

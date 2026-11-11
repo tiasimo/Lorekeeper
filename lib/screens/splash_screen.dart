@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../services/library_store.dart';
+import '../services/reminders.dart';
 import 'library_screen.dart';
 
 /// Schermata di caricamento: la lanterna si accende e rivela il nome.
@@ -27,6 +28,8 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
 
   Future<void> _start() async {
     await Future.wait([_main.forward(), LibraryStore.I.load()]);
+    final app = LibraryStore.I.app;
+    if (app.reminder) Reminders.schedule(app.reminderHour, app.reminderMinute, app.goalMinutes);
     await Future.delayed(const Duration(milliseconds: 500));
     if (!mounted) return;
     await _exit.forward();

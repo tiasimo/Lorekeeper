@@ -23,7 +23,8 @@ class PageStyle {
   final TextStyle base;
   final ReaderTheme theme;
   final TextScaler scaler;
-  const PageStyle(this.base, this.theme, this.scaler);
+  final TextAlign align;
+  const PageStyle(this.base, this.theme, this.scaler, {this.align = TextAlign.justify});
 
   double get gap => (base.fontSize ?? 18) * 0.75;
   TextStyle heading(int level) => LK.display(level <= 2 ? 21 : 18, color: theme.ink);
@@ -101,7 +102,7 @@ class Paginator {
       var segs = p.segs;
       var guard = 0;
       while (segs.isNotEmpty && guard++ < 200) {
-        final pp = measure(PageStyle.span(segs), st.base, TextAlign.justify);
+        final pp = measure(PageStyle.span(segs), st.base, st.align);
         final ph = pp.height;
         if (used + ph <= h) {
           pages.last.blocks.add(PageBlock(segs: segs));

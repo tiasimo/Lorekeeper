@@ -56,8 +56,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => ReaderScreen(book: b)));
   }
 
-  void _entryOptions(int index) {
-    final entry = store.shelf[index];
+  void _entryOptions(String entry) {
+    final index = store.shelf.indexOf(entry);
+    if (index < 0) return;
+    final manual = store.app.shelfSort == 'Manuale' && store.app.shelfFilter == 'Tutti';
     final book = entry.startsWith('b:') ? store.byId(entry.substring(2)) : null;
     showModalBottomSheet(
       context: context,
@@ -74,7 +76,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 Navigator.of(context).push(MaterialPageRoute(builder: (_) => SpineEditorScreen(book: book)));
               },
             ),
-          ListTile(
+          if (manual) ListTile(
             leading: const Icon(Icons.chevron_left),
             title: const Text('Sposta a sinistra'),
             onTap: () {
@@ -82,7 +84,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
               store.moveShelfEntry(index, index - 1 < 0 ? 0 : index - 1);
             },
           ),
-          ListTile(
+          if (manual) ListTile(
             leading: const Icon(Icons.chevron_right),
             title: const Text('Sposta a destra'),
             onTap: () {
@@ -206,7 +208,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       ),
                     ]),
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 14),
+                  if (store.books.length > 1) _sortBar(),
                   _shelf(),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
@@ -259,17 +262,87 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  List<String> get _visible {
+    final app = store.app;
+    if (app.shelfSort == 'Manuale' && app.shelfFilter == 'Tutti') return store.shelf;
+    bool keep(Book b) {
+      switch (app.shelfFilter) {
+        case 'In corso':
+          return b.lastReadAt != null && b.progress < 0.98;
+        case 'Da leggere':
+          return b.lastReadAt == null;
+        case 'Finiti':
+          return b.progress >= 0.98;
+        default:
+          return true;
+      }
+    }
+
+    final books = [
+      for (final e in store.shelf)
+        if (e.startsWith('b:') && store.byId(e.substring(2)) != null) store.byId(e.substring(2))!
+    ].where(keep).toList();
+    switch (app.shelfSort) {
+      case 'Titolo':
+        books.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+        break;
+      case 'Serie':
+        books.sort((a, b) {
+          final sa = (a.series ?? a.title).toLowerCase(), sb = (b.series ?? b.title).toLowerCase();
+          final c = sa.compareTo(sb);
+          return c != 0 ? c : (a.seriesIndex ?? 0).compareTo(b.seriesIndex ?? 0);
+        });
+        break;
+      case 'Ultimo letto':
+        books.sort((a, b) => (b.lastReadAt ?? DateTime(1970)).compareTo(a.lastReadAt ?? DateTime(1970)));
+        break;
+    }
+    return [for (final b in books) 'b:${b.id}'];
+  }
+
+  Widget _sortBar() {
+    final app = store.app;
+    Widget menu(String label, String value, List<String> opts, void Function(String) set) => PopupMenuButton<String>(
+          color: LK.card,
+          onSelected: (v) {
+            set(v);
+            store.saveAppPrefs();
+          },
+          itemBuilder: (_) => [
+            for (final o in opts)
+              PopupMenuItem(value: o, child: Text(o, style: LK.body(14, color: o == value ? LK.accent : LK.ink))),
+          ],
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(color: LK.card, borderRadius: BorderRadius.circular(8), border: Border.all(color: LK.border)),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Text('$label: ', style: LK.label(10, spacing: 0.6)),
+              Text(value, style: LK.body(12)),
+              Icon(Icons.expand_more, size: 16, color: LK.muted),
+            ]),
+          ),
+        );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+      child: Wrap(spacing: 8, runSpacing: 8, children: [
+        menu('ORDINA', app.shelfSort, const ['Manuale', 'Serie', 'Titolo', 'Ultimo letto'], (v) => app.shelfSort = v),
+        menu('MOSTRA', app.shelfFilter, const ['Tutti', 'In corso', 'Da leggere', 'Finiti'], (v) => app.shelfFilter = v),
+      ]),
+    );
+  }
+
   Widget _shelf() {
+    final entries = _visible;
     return Column(children: [
       SizedBox(
         height: 240,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 24),
-          itemCount: store.shelf.length + 1,
+          itemCount: entries.length + 1,
           separatorBuilder: (_, __) => const SizedBox(width: 8),
           itemBuilder: (context, i) {
-            if (i == store.shelf.length) {
+            if (i == entries.length) {
               return Align(
                 alignment: Alignment.center,
                 child: Padding(
@@ -286,12 +359,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
               );
             }
-            final e = store.shelf[i];
+            final e = entries[i];
             if (e.startsWith('d:')) {
               final d = DividerArt.byId(e.substring(2));
               if (d == null) return const SizedBox.shrink();
               return GestureDetector(
-                onLongPress: () => _entryOptions(i),
+                onLongPress: () => _entryOptions(e),
                 child: Align(alignment: Alignment.bottomCenter, child: Image.asset(d.asset, height: 220, fit: BoxFit.contain)),
               );
             }
@@ -299,7 +372,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             if (b == null) return const SizedBox.shrink();
             return GestureDetector(
               onTap: () => _openBook(b),
-              onLongPress: () => _entryOptions(i),
+              onLongPress: () => _entryOptions(e),
               child: Align(alignment: Alignment.bottomCenter, child: SpineView.of(b, baseHeight: 205)),
             );
           },
@@ -397,6 +470,29 @@ class _LibraryScreenState extends State<LibraryScreen> {
               stat('${store.chaptersRead}', 'CAPITOLI LETTI'),
               stat(time, 'QUESTA SETTIMANA'),
             ]),
+            const SizedBox(height: 16),
+            Builder(builder: (context) {
+              final goal = store.app.goalMinutes;
+              final today = store.secondsToday ~/ 60;
+              final done = today >= goal;
+              return Column(children: [
+                Row(children: [
+                  Text('OGGI', style: LK.label(9, color: LK.parchmentInk, spacing: 1)),
+                  const Spacer(),
+                  Text(done ? 'Obiettivo raggiunto ✦' : '$today / $goal min', style: LK.body(12, color: LK.parchmentInk)),
+                ]),
+                const SizedBox(height: 6),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(3),
+                  child: LinearProgressIndicator(
+                    value: (today / goal).clamp(0.0, 1.0),
+                    minHeight: 6,
+                    backgroundColor: LK.parchmentBorder.withValues(alpha: 0.5),
+                    color: LK.accent,
+                  ),
+                ),
+              ]);
+            }),
           ]),
         ),
       ),

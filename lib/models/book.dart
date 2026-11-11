@@ -19,6 +19,7 @@ class Book {
   final String filePath;
   String? coverPath;
   List<Chapter> chapters;
+  List<int>? chapterChars; // lunghezza del testo di ogni capitolo (per il tempo stimato)
   int format; // 3 = capitoli raggruppati dall'indice + entità decodificate
 
   // Dorso
@@ -47,6 +48,7 @@ class Book {
     this.coverPath,
     required this.chapters,
     this.format = 3,
+    this.chapterChars,
     required this.spineColor,
     required this.spineTextColor,
     required this.coverSpineColor,
@@ -76,6 +78,7 @@ class Book {
         'coverPath': coverPath,
         'chapters': chapters.map((c) => c.toJson()).toList(),
         'format': format,
+        'chapterChars': chapterChars,
         'spineColor': spineColor,
         'spineTextColor': spineTextColor,
         'coverSpineColor': coverSpineColor,
@@ -100,6 +103,7 @@ class Book {
         coverPath: j['coverPath'] as String?,
         chapters: ((j['chapters'] as List?) ?? []).map((c) => Chapter.fromJson(Map<String, dynamic>.from(c as Map))).toList(),
         format: (j['format'] as int?) ?? 1,
+        chapterChars: (j['chapterChars'] as List?)?.cast<int>(),
         spineColor: j['spineColor'] as int,
         spineTextColor: j['spineTextColor'] as int,
         coverSpineColor: (j['coverSpineColor'] as int?) ?? j['spineColor'] as int,

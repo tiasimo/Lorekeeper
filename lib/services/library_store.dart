@@ -14,12 +14,86 @@ import 'epub.dart';
 EpubMeta _parseMeta(Uint8List bytes) => Epub.open(bytes).meta();
 
 class ReaderPrefs {
-  String theme;
-  String font;
-  double size;
-  double lineHeight;
-  String mode; // Pagine | Scorrimento
-  ReaderPrefs({this.theme = 'Carta', this.font = 'Lora', this.size = 18, this.lineHeight = 1.7, this.mode = 'Pagine'});
+  String theme = 'Carta';
+  String font = 'Lora';
+  double size = 18;
+  double lineHeight = 1.7;
+  String mode = 'Pagine'; // Pagine | Scorrimento
+  String margins = 'Normali'; // Stretti | Normali | Larghi
+  bool justify = true;
+  bool hyphenate = true;
+  String animation = 'Arricciatura'; // Arricciatura | Scorrimento | Nessuna
+  bool tapEdges = true;
+  bool invertTaps = false;
+  bool immersive = true;
+  String orientation = 'Automatico'; // Automatico | Verticale | Orizzontale
+  bool twoPages = true; // in orizzontale
+  double brightness = 1.0; // 0.3 – 1.0 (velo scuro sopra la pagina)
+  double warmth = 0.0; // 0 – 1 (filtro luce calda)
+  bool volumeKeys = true;
+  bool keepAwake = true;
+
+  double get marginPx => margins == 'Stretti' ? 16 : (margins == 'Larghi' ? 40 : 26);
+
+  Map<String, dynamic> toJson() => {
+        'theme': theme, 'font': font, 'size': size, 'lineHeight': lineHeight, 'mode': mode, 'margins': margins,
+        'justify': justify, 'hyphenate': hyphenate, 'animation': animation, 'tapEdges': tapEdges, 'invertTaps': invertTaps,
+        'immersive': immersive, 'orientation': orientation, 'twoPages': twoPages, 'brightness': brightness, 'warmth': warmth,
+        'volumeKeys': volumeKeys, 'keepAwake': keepAwake,
+      };
+
+  void fromJson(Map<String, dynamic> j) {
+    T v<T>(String k, T d) => j[k] is T ? j[k] as T : d;
+    double dbl(String k, double d) => j[k] is num ? (j[k] as num).toDouble() : d;
+    theme = v('theme', theme);
+    font = v('font', font);
+    size = dbl('size', size);
+    lineHeight = dbl('lineHeight', lineHeight);
+    mode = v('mode', mode);
+    margins = v('margins', margins);
+    justify = v('justify', justify);
+    hyphenate = v('hyphenate', hyphenate);
+    animation = v('animation', animation);
+    tapEdges = v('tapEdges', tapEdges);
+    invertTaps = v('invertTaps', invertTaps);
+    immersive = v('immersive', immersive);
+    orientation = v('orientation', orientation);
+    twoPages = v('twoPages', twoPages);
+    brightness = dbl('brightness', brightness);
+    warmth = dbl('warmth', warmth);
+    volumeKeys = v('volumeKeys', volumeKeys);
+    keepAwake = v('keepAwake', keepAwake);
+  }
+}
+
+class AppPrefs {
+  int goalMinutes = 20;
+  bool reminder = false;
+  int reminderHour = 21;
+  int reminderMinute = 0;
+  String spoiler = 'Pagina'; // Pagina | Capitolo | Libro
+  String language = 'Inglese';
+  String geminiModel = 'gemini-3.5-flash-lite';
+  String shelfSort = 'Manuale'; // Manuale | Serie | Titolo | Ultimo letto
+  String shelfFilter = 'Tutti'; // Tutti | In corso | Da leggere | Finiti
+
+  Map<String, dynamic> toJson() => {
+        'goalMinutes': goalMinutes, 'reminder': reminder, 'reminderHour': reminderHour, 'reminderMinute': reminderMinute,
+        'spoiler': spoiler, 'language': language, 'geminiModel': geminiModel, 'shelfSort': shelfSort, 'shelfFilter': shelfFilter,
+      };
+
+  void fromJson(Map<String, dynamic> j) {
+    T v<T>(String k, T d) => j[k] is T ? j[k] as T : d;
+    goalMinutes = v('goalMinutes', goalMinutes);
+    reminder = v('reminder', reminder);
+    reminderHour = v('reminderHour', reminderHour);
+    reminderMinute = v('reminderMinute', reminderMinute);
+    spoiler = v('spoiler', spoiler);
+    language = v('language', language);
+    geminiModel = v('geminiModel', geminiModel);
+    shelfSort = v('shelfSort', shelfSort);
+    shelfFilter = v('shelfFilter', shelfFilter);
+  }
 }
 
 /// Libreria: libri, scaffale, progressi e statistiche. Tutto salvato in locale.
@@ -41,6 +115,10 @@ class LibraryStore extends ChangeNotifier {
   /// Aspetto dell'app: Giorno, Notte o Sistema.
   String appTheme = 'Sistema';
   final ReaderPrefs reader = ReaderPrefs();
+  final AppPrefs app = AppPrefs();
+
+  /// Velocità di lettura stimata (caratteri al secondo).
+  double charsPerSecond = 0;
   Map<String, int> secondsByDay = {};
   int chaptersRead = 0;
 
@@ -73,6 +151,11 @@ class LibraryStore extends ChangeNotifier {
     reader.size = _prefs.getDouble('r.size') ?? reader.size;
     reader.lineHeight = _prefs.getDouble('r.line') ?? reader.lineHeight;
     reader.mode = _prefs.getString('r.mode') ?? reader.mode;
+    final rj = _prefs.getString('reader.prefs');
+    if (rj != null) reader.fromJson(Map<String, dynamic>.from(jsonDecode(rj) as Map));
+    final aj = _prefs.getString('app.prefs');
+    if (aj != null) app.fromJson(Map<String, dynamic>.from(jsonDecode(aj) as Map));
+    charsPerSecond = _prefs.getDouble('speed.cps') ?? 0;
     chaptersRead = _prefs.getInt('stats.chapters') ?? 0;
     final s = _prefs.getString('stats.days');
     if (s != null) secondsByDay = Map<String, int>.from(jsonDecode(s) as Map);
@@ -90,6 +173,7 @@ class LibraryStore extends ChangeNotifier {
         final meta = await compute(_parseMeta, bytes);
         final oldHref = b.chapters.isEmpty ? null : b.chapters[b.lastChapter.clamp(0, b.chapters.length - 1)].href;
         b.chapters = meta.chapters;
+        b.chapterChars = null;
         b.format = 3;
         if (b.title.contains('&')) b.title = meta.title;
         if (b.author.contains('&')) b.author = meta.author;
@@ -284,6 +368,27 @@ class LibraryStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  void saveAppPrefs() {
+    _prefs.setString('app.prefs', jsonEncode(app.toJson()));
+    notifyListeners();
+  }
+
+  /// Aggiorna la velocità di lettura con il tempo passato su una pagina.
+  void recordPage(int chars, double seconds) {
+    if (chars < 200 || seconds < 4 || seconds > 600) return;
+    final cps = chars / seconds;
+    if (cps < 3 || cps > 80) return;
+    charsPerSecond = charsPerSecond == 0 ? cps : charsPerSecond * 0.85 + cps * 0.15;
+    _prefs.setDouble('speed.cps', charsPerSecond);
+  }
+
+  int get secondsToday => secondsByDay[_dayKey(DateTime.now())] ?? 0;
+
+  void setChapterChars(Book b, List<int> chars) {
+    b.chapterChars = chars;
+    save(soon: true);
+  }
+
   void setAppTheme(String t) {
     appTheme = t;
     _prefs.setString('appTheme', t);
@@ -296,6 +401,7 @@ class LibraryStore extends ChangeNotifier {
     _prefs.setDouble('r.size', reader.size);
     _prefs.setDouble('r.line', reader.lineHeight);
     _prefs.setString('r.mode', reader.mode);
+    _prefs.setString('reader.prefs', jsonEncode(reader.toJson()));
     notifyListeners();
   }
 }
