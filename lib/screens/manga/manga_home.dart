@@ -6,6 +6,7 @@ import '../../services/manga_store.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/manga_image.dart';
+import 'anilist_ui.dart';
 import 'manga_detail.dart';
 
 /// Sezione Manga: la tua libreria, l'esplorazione delle sorgenti e le estensioni.
@@ -48,7 +49,12 @@ class _MangaHomeState extends State<MangaHome> {
               const BackLink(trail: 'Libreria'),
               Text('Manga', style: LK.display(30)),
               const SizedBox(height: 12),
-              Center(child: Segmented(labels: const ['Libreria', 'Esplora', 'Estensioni'], selected: _tab, onChanged: (i) => setState(() => _tab = i))),
+              Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Segmented(labels: const ['Libreria', 'Esplora', 'AniList', 'Estensioni'], selected: _tab, onChanged: (i) => setState(() => _tab = i)),
+                ),
+              ),
               const SizedBox(height: 10),
             ]),
           ),
@@ -59,7 +65,8 @@ class _MangaHomeState extends State<MangaHome> {
                     ? Center(child: CircularProgressIndicator(color: LK.accent))
                     : IndexedStack(index: _tab, children: [
                         _LibraryTab(onExplore: () => setState(() => _tab = 1)),
-                        if (_starting) const SizedBox.shrink() else _ExploreTab(onExtensions: () => setState(() => _tab = 2)),
+                        if (_starting) const SizedBox.shrink() else _ExploreTab(onExtensions: () => setState(() => _tab = 3)),
+                        if (_starting) const SizedBox.shrink() else const AniListTab(),
                         if (_starting) const SizedBox.shrink() else const _ExtensionsTab(),
                       ]),
           ),

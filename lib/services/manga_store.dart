@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:path/path.dart' as p;
 
+import 'anilist.dart';
 import 'library_store.dart';
 
 /// Capitolo di un manga salvato.
@@ -36,6 +37,12 @@ class SavedManga {
   bool inLibrary;
   DateTime addedAt;
   DateTime? lastReadAt;
+  // collegamento ad AniList
+  int? anilistId;
+  String? alStatus;
+  int alProgress;
+  double alScore;
+  int? alTotal;
 
   SavedManga({
     required this.sourceId,
@@ -54,6 +61,10 @@ class SavedManga {
     this.inLibrary = false,
     DateTime? addedAt,
     this.lastReadAt,
+    this.anilistId,
+    this.alStatus,
+    this.alProgress = 0,
+    this.alScore = 0,
   })  : genres = genres ?? [],
         chapters = chapters ?? [],
         read = read ?? {},
@@ -95,6 +106,11 @@ class SavedManga {
         'lib': inLibrary,
         'added': addedAt.millisecondsSinceEpoch,
         'readAt': lastReadAt?.millisecondsSinceEpoch,
+        'al': anilistId,
+        'alSt': alStatus,
+        'alP': alProgress,
+        'alS': alScore,
+        'alT': alTotal,
       };
 
   factory SavedManga.fromJson(Map j) => SavedManga(
@@ -114,7 +130,19 @@ class SavedManga {
         inLibrary: (j['lib'] as bool?) ?? false,
         addedAt: DateTime.fromMillisecondsSinceEpoch((j['added'] as int?) ?? 0),
         lastReadAt: j['readAt'] == null ? null : DateTime.fromMillisecondsSinceEpoch(j['readAt'] as int),
-      );
+        anilistId: j['al'] as int?,
+        alStatus: j['alSt'] as String?,
+        alProgress: (j['alP'] as int?) ?? 0,
+        alScore: ((j['alS'] as num?) ?? 0).toDouble(),
+      )..alTotal = j['alT'] as int?;
+
+  /// Numero del capitolo per AniList (che conta i capitoli letti).
+  int chapterNumber(MChapter c) {
+    final n = double.tryParse(c.number);
+    if (n != null && n > 0) return n.floor();
+    final i = ordered.indexWhere((x) => x.url == c.url);
+    return i < 0 ? 0 : i + 1;
+  }
 }
 
 /// Sezione Manga: estensioni (Mangayomi e Mihon/Aniyomi) tramite il runtime di AnymeX,
@@ -225,7 +253,69 @@ class MangaStore extends ChangeNotifier {
   }
 
   void markRead(SavedManga m, MChapter c, {bool read = true}) {
+    final was = m.read.contains(c.url);
     read ? m.read.add(c.url) : m.read.remove(c.url);
+    save();
+    if (read && !was) _syncProgress(m, m.chapterNumber(c));
+  }
+
+  /// Aggiorna AniList quando finisci un capitolo (solo se vai avanti).
+  Future<void> _syncProgress(SavedManga m, int chapter) async {
+    final id = m.anilistId;
+    final al = AniList.I;
+    if (id == null || !al.loggedIn || chapter <= m.alProgress) return;
+    final total = int.tryParse('${m.alTotal ?? ''}');
+    var status = m.alStatus;
+    if (status == null || status == 'PLANNING' || status == 'PAUSED' || status == 'DROPPED') status = 'CURRENT';
+    if (total != null && total > 0 && chapter >= total && status != 'REPEATING') status = 'COMPLETED';
+    try {
+      await al.save(id, progress: chapter, status: status);
+      m.alProgress = chapter;
+      m.alStatus = status;
+      save();
+    } catch (e) {
+      syncError = '$e';
+      notifyListeners();
+    }
+  }
+
+  String? syncError;
+
+  /// Collega il manga a una voce di AniList e allinea stato, progressi e voto.
+  Future<void> linkAniList(SavedManga m, AlMedia media) async {
+    m.anilistId = media.id;
+    m.alTotal = media.chapters;
+    final e = await AniList.I.entry(media.id);
+    if (e != null) {
+      m.alStatus = e.status;
+      m.alProgress = e.progress;
+      m.alScore = e.score;
+    } else {
+      m.alStatus = null;
+      m.alProgress = 0;
+      m.alScore = 0;
+    }
+    // se in app hai letto di più, porto avanti AniList
+    final readMax = m.chapters.where((c) => m.read.contains(c.url)).map(m.chapterNumber).fold<int>(0, (a, b) => b > a ? b : a);
+    save();
+    if (readMax > m.alProgress) await _syncProgress(m, readMax);
+  }
+
+  void unlinkAniList(SavedManga m) {
+    m.anilistId = null;
+    m.alStatus = null;
+    m.alProgress = 0;
+    m.alScore = 0;
+    save();
+  }
+
+  Future<void> setAniList(SavedManga m, {String? status, double? score, int? progress}) async {
+    final id = m.anilistId;
+    if (id == null) return;
+    await AniList.I.save(id, status: status, score: score, progress: progress);
+    if (status != null) m.alStatus = status;
+    if (score != null) m.alScore = score;
+    if (progress != null) m.alProgress = progress;
     save();
   }
 

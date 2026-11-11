@@ -238,3 +238,18 @@ for line in ['kotlin.jvm.target.validation.mode=warning', 'android.enableJetifie
         pv += '\n' + line
 open(props, 'w').write(pv + '\n')
 print(pv)
+
+# ---------------------------------------------------------------------------
+# Accesso ad AniList: il browser torna all'app con lorekeeper://anilist
+m = open(M).read()
+if 'flutter_web_auth_2.CallbackActivity' not in m:
+    m = m.replace('</application>', """        <activity android:name="com.linusu.flutter_web_auth_2.CallbackActivity" android:exported="true">
+            <intent-filter android:label="flutter_web_auth_2">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="lorekeeper"/>
+            </intent-filter>
+        </activity>
+    </application>""", 1)
+    open(M, 'w').write(m)

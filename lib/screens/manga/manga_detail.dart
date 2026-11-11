@@ -5,6 +5,7 @@ import '../../services/manga_store.dart';
 import '../../theme.dart';
 import '../../widgets/common.dart';
 import '../../widgets/manga_image.dart';
+import 'anilist_ui.dart';
 import 'manga_reader.dart';
 
 /// Scheda del manga: copertina, trama, generi e capitoli.
@@ -144,6 +145,7 @@ class _MangaDetailState extends State<MangaDetail> {
                       ),
                     ),
                   ]),
+                  AniListCard(manga: m),
                   if ((m.description ?? '').isNotEmpty) ...[
                     const SizedBox(height: 16),
                     GestureDetector(
