@@ -8,6 +8,8 @@ import '../../widgets/common.dart';
 import '../../widgets/manga_image.dart';
 import '../../widgets/spine.dart';
 import '../../widgets/shelf_backdrop.dart';
+import '../../widgets/seasonal.dart';
+import '../../widgets/shelf_customize.dart';
 import '../../services/library_store.dart';
 import '../spine_editor_screen.dart';
 import 'anilist_ui.dart';
@@ -15,14 +17,16 @@ import 'manga_categories.dart';
 import 'manga_detail.dart';
 import 'manga_reader.dart';
 
-/// Sezione Manga: la tua libreria, l'esplorazione delle sorgenti e le estensioni.
-class MangaHome extends StatefulWidget {
-  const MangaHome({super.key});
+/// Sezione Manga dentro la home: [view] 0 = libreria, 1 = esplora (sorgenti, novità, cronologia, AniList, estensioni).
+class MangaSection extends StatefulWidget {
+  final int view;
+  final VoidCallback onExplore;
+  const MangaSection({super.key, required this.view, required this.onExplore});
   @override
-  State<MangaHome> createState() => _MangaHomeState();
+  State<MangaSection> createState() => _MangaSectionState();
 }
 
-class _MangaHomeState extends State<MangaHome> {
+class _MangaSectionState extends State<MangaSection> {
   final store = MangaStore.I;
   int _tab = 0;
   bool _starting = true;
@@ -45,7 +49,7 @@ class _MangaHomeState extends State<MangaHome> {
     });
   }
 
-  static const _tabs = ['Libreria', 'Novità', 'Cronologia', 'Esplora', 'AniList', 'Estensioni'];
+  static const _tabs = ['Sorgenti', 'Novità', 'Cronologia', 'AniList', 'Estensioni'];
 
   /// Apre un capitolo dalla cronologia o dalle novità.
   Future<void> _openChapter(MangaEvent e, {bool resume = false}) async {
@@ -61,84 +65,137 @@ class _MangaHomeState extends State<MangaHome> {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => MangaReader(manga: m, source: s, chapter: c, startPage: resume && m.lastChapter == c.url ? m.lastPage : 0)));
   }
 
+  /// L'ultimo manga aperto, se ha ancora qualcosa da leggere.
+  (SavedManga, MChapter, int)? get _continue {
+    final list = store.library.where((m) => !m.pending && m.lastReadAt != null && m.lastChapter != null).toList()
+      ..sort((a, b) => b.lastReadAt!.compareTo(a.lastReadAt!));
+    for (final m in list) {
+      final ord = m.ordered;
+      final i = ord.indexWhere((c) => c.url == m.lastChapter);
+      if (i < 0) continue;
+      if (!m.isRead(ord[i])) return (m, ord[i], m.lastPage);
+      if (i + 1 < ord.length) return (m, ord[i + 1], 0);
+    }
+    return null;
+  }
+
+  Future<void> _resume((SavedManga, MChapter, int) r) async {
+    await store.ensureBridge();
+    final s = store.sourceFor(r.$1);
+    if (!mounted) return;
+    if (s == null) {
+      Navigator.of(context).push(bookRoute(MangaDetail(manga: r.$1)));
+      return;
+    }
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => MangaReader(manga: r.$1, source: s, chapter: r.$2, startPage: r.$3)));
+  }
+
+  Widget _continueBar() => ListenableBuilder(
+        listenable: store,
+        builder: (context, _) {
+          final r = _continue;
+          final sync = store.refreshing
+              ? Padding(padding: const EdgeInsets.all(12), child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: LK.accent)))
+              : IconButton(
+                  tooltip: 'Cerca nuovi capitoli',
+                  icon: Icon(Icons.sync, color: LK.accent, size: 26),
+                  onPressed: () async {
+                    final n = await store.refreshLibrary();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(n == 0 ? 'Nessun capitolo nuovo' : '$n ${n == 1 ? 'capitolo nuovo' : 'capitoli nuovi'}')));
+                    }
+                  },
+                );
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 12, 4),
+            child: Row(children: [
+              Expanded(
+                child: r == null
+                    ? Text('Nessun manga in corso', style: LK.body(13.5, color: LK.muted, style: FontStyle.italic))
+                    : Material(
+                        color: LK.card,
+                        borderRadius: BorderRadius.circular(14),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: () => _resume(r),
+                          child: Container(
+                            padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
+                            decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: LK.line)),
+                            child: Row(children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(4),
+                                child: SizedBox(
+                                  width: 38,
+                                  height: 54,
+                                  child: (r.$1.cover ?? '').isEmpty ? Container(color: LK.line) : MangaImage(r.$1.cover!, sourceId: r.$1.sourceId, managerId: r.$1.managerId),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  Text('CONTINUA A LEGGERE', style: LK.label(9, spacing: 1.6)),
+                                  Text(r.$1.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.display(15)),
+                                  Text('${r.$2.name}${r.$3 > 0 ? ' · pagina ${r.$3 + 1}' : ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.body(12.5, color: LK.muted)),
+                                ]),
+                              ),
+                              LKIcon(LKGlyph.read, color: LK.accent, size: 22),
+                            ]),
+                          ),
+                        ),
+                      ),
+              ),
+              sync,
+            ]),
+          );
+        },
+      );
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Stack(children: [
-        TabletSafeArea(
-        child: Column(children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const BackLink(trail: 'Libreria'),
-              Row(children: [
-                Expanded(child: Text('Manga', style: LK.display(30))),
-                ListenableBuilder(
-                  listenable: MangaStore.I,
-                  builder: (context, _) => MangaStore.I.refreshing
-                      ? Padding(padding: const EdgeInsets.all(12), child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: LK.accent)))
-                      : IconButton(
-                          tooltip: 'Cerca nuovi capitoli',
-                          icon: Icon(Icons.sync, color: LK.accent, size: 28),
-                          onPressed: () async {
-                            final n = await MangaStore.I.refreshLibrary();
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(n == 0 ? 'Nessun capitolo nuovo' : '$n ${n == 1 ? 'capitolo nuovo' : 'capitoli nuovi'}')));
-                            }
-                          },
-                        ),
-                ),
-              ]),
-              const SizedBox(height: 10),
-            ]),
-          ),
-          // schede scorrevoli
-          SizedBox(
-            height: 44,
-            child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 20), children: [
-              for (var i = 0; i < _tabs.length; i++)
-                Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: GestureDetector(
-                    onTap: () => setState(() => _tab = i),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: i == _tab ? LK.accent : LK.card,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: i == _tab ? LK.accent : LK.border),
-                      ),
-                      child: Text(_tabs[i].toUpperCase(), style: LK.label(10.5, color: i == _tab ? LK.onAccent : LK.muted, spacing: 1.1)),
-                    ),
+    if (widget.view == 0) {
+      return Column(children: [
+        _continueBar(),
+        Expanded(child: _LibraryTab(onExplore: widget.onExplore)),
+      ]);
+    }
+    return Column(children: [
+      SizedBox(
+        height: 44,
+        child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 20), children: [
+          for (var i = 0; i < _tabs.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: GestureDetector(
+                onTap: () => setState(() => _tab = i),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: i == _tab ? LK.accent : LK.card,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: i == _tab ? LK.accent : LK.border),
                   ),
+                  child: Text(_tabs[i].toUpperCase(), style: LK.label(10.5, color: i == _tab ? LK.onAccent : LK.muted, spacing: 1.1)),
                 ),
-            ]),
-          ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(20, 0, 20, 0),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              SizedBox(height: 10),
-            ]),
-          ),
-          Expanded(
-            child: _error != null
-                ? _message('Non riesco ad avviare le estensioni:\n$_error')
-                : _starting && _tab >= 3
-                    ? Center(child: CircularProgressIndicator(color: LK.accent))
-                    : IndexedStack(index: _tab, children: [
-                        _LibraryTab(onExplore: () => setState(() => _tab = 3)),
-                        _UpdatesTab(onOpen: _openChapter),
-                        _HistoryTab(onOpen: _openChapter),
-                        if (_starting) const SizedBox.shrink() else _ExploreTab(onExtensions: () => setState(() => _tab = 5)),
-                        if (_starting) const SizedBox.shrink() else const AniListTab(),
-                        if (_starting) const SizedBox.shrink() else const _ExtensionsTab(),
-                      ]),
-          ),
+              ),
+            ),
         ]),
       ),
-      ]),
-    );
+      const SizedBox(height: 10),
+      Expanded(
+        child: _error != null
+            ? _message('Non riesco ad avviare le estensioni:\n$_error')
+            : _starting && (_tab == 0 || _tab >= 3)
+                ? Center(child: CircularProgressIndicator(color: LK.accent))
+                : IndexedStack(index: _tab, children: [
+                    if (_starting) const SizedBox.shrink() else _ExploreTab(onExtensions: () => setState(() => _tab = 4)),
+                    _UpdatesTab(onOpen: _openChapter),
+                    _HistoryTab(onOpen: _openChapter),
+                    if (_starting) const SizedBox.shrink() else const AniListTab(),
+                    if (_starting) const SizedBox.shrink() else const _ExtensionsTab(),
+                  ]),
+      ),
+    ]);
   }
 }
 
@@ -327,23 +384,39 @@ class _LibraryTab extends StatelessWidget {
 
   /// Scaffale fisso: i dorsi vanno a capo su più ripiani.
   Widget _shelf(BuildContext context, int kind, List<SavedManga> list) {
-    final wood = _shelfWoods[kind];
-    final bg = LibraryStore.I.app.mangaShelfBg;
+    final key = 'manga:$kind';
+    final app = LibraryStore.I.app;
+    final wood = app.woodFor(key, _shelfWoods[kind]);
+    final bg = app.bgFor(key, manga: true);
     final wall = bg != 'Carta' && shelfBackdrops.contains(bg);
+    final season = app.decoFor(key) ? currentSeason() : null;
     return ShelfWall(
       kind: bg,
       margin: const EdgeInsets.fromLTRB(8, 12, 8, 4),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Padding(
         padding: EdgeInsets.fromLTRB(wall ? 14 : 22, wall ? 6 : 18, 22, 10),
-        child: shelfTitlePill(
-          Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
-            Text(_shelfNames[kind], style: LK.display(20, color: LK.accent).copyWith(fontStyle: FontStyle.italic)),
-            const SizedBox(width: 10),
-            Text('${list.length} manga', style: LK.label(9.5, spacing: 0.8)),
-          ]),
-          onWall: wall,
-        ),
+        child: Row(children: [
+          shelfTitlePill(
+            Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
+              Text(_shelfNames[kind], style: LK.display(20, color: LK.accent).copyWith(fontStyle: FontStyle.italic)),
+              const SizedBox(width: 10),
+              Text('${list.length} manga', style: LK.label(9.5, spacing: 0.8)),
+            ]),
+            onWall: wall,
+          ),
+          const Spacer(),
+          IconButton(
+            tooltip: 'Personalizza lo scaffale',
+            visualDensity: VisualDensity.compact,
+            icon: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(color: LK.paper.withValues(alpha: 0.88), shape: BoxShape.circle),
+              child: Icon(Icons.format_paint_outlined, size: 17, color: LK.muted),
+            ),
+            onPressed: () => showShelfCustomize(context, key: key, title: _shelfNames[kind], manga: true),
+          ),
+        ]),
       ),
       LayoutBuilder(builder: (context, c) {
         final inner = c.maxWidth - 32 - ShelfSide.width * 2 - 20;
@@ -381,6 +454,7 @@ class _LibraryTab extends StatelessWidget {
                 ]),
                 Positioned(left: 0, top: 6, bottom: -5, child: ShelfSide(wood: wood)),
                 Positioned(right: 0, top: 6, bottom: -5, child: ShelfSide(wood: wood, right: true)),
+                if (season != null) Positioned.fill(child: SeasonalDecor(season: season, boardTop: 230, seed: row.length + kind)),
               ]),
             ),
         ]);
@@ -392,7 +466,7 @@ class _LibraryTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([MangaStore.I, _catFilter]),
+      listenable: Listenable.merge([MangaStore.I, _catFilter, LibraryStore.I]),
       builder: (context, _) {
         final store = MangaStore.I;
         final list = store.library;

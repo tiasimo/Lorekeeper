@@ -19,6 +19,7 @@ Future<void> showMangaReaderSheet(
   required int effectiveMode,
   required void Function({int? mode, int? rotation}) onSeries,
   required VoidCallback onChanged,
+  bool showSeries = true,
 }) {
   return showModalBottomSheet(
     context: context,
@@ -28,7 +29,7 @@ Future<void> showMangaReaderSheet(
     showDragHandle: true,
     builder: (ctx) => SizedBox(
       height: MediaQuery.of(ctx).size.height * 0.62,
-      child: _Sheet(prefs: prefs, seriesMode: seriesMode, seriesRotation: seriesRotation, effectiveMode: effectiveMode, onSeries: onSeries, onChanged: onChanged),
+      child: _Sheet(prefs: prefs, seriesMode: seriesMode, seriesRotation: seriesRotation, effectiveMode: effectiveMode, onSeries: onSeries, onChanged: onChanged, showSeries: showSeries),
     ),
   );
 }
@@ -38,7 +39,8 @@ class _Sheet extends StatefulWidget {
   final int seriesMode, seriesRotation, effectiveMode;
   final void Function({int? mode, int? rotation}) onSeries;
   final VoidCallback onChanged;
-  const _Sheet({required this.prefs, required this.seriesMode, required this.seriesRotation, required this.effectiveMode, required this.onSeries, required this.onChanged});
+  final bool showSeries;
+  const _Sheet({required this.prefs, required this.seriesMode, required this.seriesRotation, required this.effectiveMode, required this.onSeries, required this.onChanged, this.showSeries = true});
   @override
   State<_Sheet> createState() => _SheetState();
 }
@@ -131,17 +133,19 @@ class _SheetState extends State<_Sheet> {
   Widget _readingTab() {
     final webtoon = widget.effectiveMode >= 4;
     return ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 30), children: [
-      Padding(padding: const EdgeInsets.only(top: 14), child: Text('PER QUESTA SERIE', style: LK.label(10, color: _gold, spacing: 1.4))),
-      _title('Modalità di lettura'),
-      _chips(mangaModes, _mode, (i) {
-        setState(() => _mode = i);
-        widget.onSeries(mode: i);
-      }),
-      _title('Rotazione'),
-      _chips(mangaRotations, _rot, (i) {
-        setState(() => _rot = i);
-        widget.onSeries(rotation: i);
-      }),
+      if (widget.showSeries) ...[
+        Padding(padding: const EdgeInsets.only(top: 14), child: Text('PER QUESTA SERIE', style: LK.label(10, color: _gold, spacing: 1.4))),
+        _title('Modalità di lettura'),
+        _chips(mangaModes, _mode, (i) {
+          setState(() => _mode = i);
+          widget.onSeries(mode: i);
+        }),
+        _title('Rotazione'),
+        _chips(mangaRotations, _rot, (i) {
+          setState(() => _rot = i);
+          widget.onSeries(rotation: i);
+        }),
+      ],
       if (!webtoon) ...[
         Padding(padding: const EdgeInsets.only(top: 22), child: Text('PER PAGINA', style: LK.label(10, color: _gold, spacing: 1.4))),
         _title('Zone di tocco'),

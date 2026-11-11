@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/book.dart';
+import '../widgets/spine.dart';
 import 'cover_colors.dart';
 import 'epub.dart';
 
@@ -79,6 +80,10 @@ class AppPrefs {
   String dividers = 'Scelti da me'; // Scelti da me | Automatici
   String shelfBg = 'Carta'; // sfondo degli scaffali delle novel
   String mangaShelfBg = 'Carta'; // sfondo degli scaffali dei manga
+  bool seasonal = true; // decorazioni delle feste sugli scaffali
+  /// Personalizzazione di ogni scaffale: chiave → {bg, wood, deco}
+  Map<String, Map<String, dynamic>> shelfLooks = {};
+  int section = 0; // 0 novel, 1 manga (ultima sezione aperta)
 
   Map<String, dynamic> toJson() => {
         'goalMinutes': goalMinutes, 'reminder': reminder, 'reminderHour': reminderHour, 'reminderMinute': reminderMinute,
@@ -86,6 +91,9 @@ class AppPrefs {
         'dividers': dividers,
         'shelfBg': shelfBg,
         'mangaShelfBg': mangaShelfBg,
+        'seasonal': seasonal,
+        'shelfLooks': shelfLooks,
+        'section': section,
       };
 
   void fromJson(Map<String, dynamic> j) {
@@ -102,7 +110,27 @@ class AppPrefs {
     dividers = v('dividers', dividers);
     shelfBg = v('shelfBg', shelfBg);
     mangaShelfBg = v('mangaShelfBg', mangaShelfBg);
+    seasonal = v('seasonal', seasonal);
+    section = v('section', section);
+    final sl = j['shelfLooks'];
+    if (sl is Map) {
+      shelfLooks = {for (final e in sl.entries) if (e.value is Map) e.key as String: Map<String, dynamic>.from(e.value as Map)};
+    }
   }
+
+  /// Sfondo di uno scaffale (il suo, oppure quello generale).
+  String bgFor(String key, {bool manga = false}) => (shelfLooks[key]?['bg'] as String?) ?? (manga ? mangaShelfBg : shelfBg);
+
+  /// Legno di uno scaffale (scelto, oppure uno diverso per ogni scaffale).
+  Wood woodFor(String key, [Wood? fallback]) {
+    final name = shelfLooks[key]?['wood'] as String?;
+    for (final w in Wood.all) {
+      if (w.name == name) return w;
+    }
+    return fallback ?? Wood.forKey(key);
+  }
+
+  bool decoFor(String key) => seasonal && ((shelfLooks[key]?['deco'] as bool?) ?? true);
 }
 
 /// Libreria: libri, scaffale, progressi e statistiche. Tutto salvato in locale.
@@ -191,9 +219,41 @@ class LibraryStore extends ChangeNotifier {
     if (cd != null) chaptersByDay = Map<String, int>.from(jsonDecode(cd) as Map);
     final fb = _prefs.getString('stats.finished');
     if (fb != null) finishedBooks = Map<String, int>.from(jsonDecode(fb) as Map);
+    _sagaStyles();
     loaded = true;
     notifyListeners();
     _migrate();
+  }
+
+  /// Stile del dorso uguale per tutta la saga (una volta sola per le librerie esistenti).
+  void _sagaStyles() {
+    if (_prefs.getBool('fix.sagaStyle') ?? false) return;
+    final bySeries = <String, List<Book>>{};
+    for (final b in books) {
+      if (b.series != null) bySeries.putIfAbsent(b.series!, () => []).add(b);
+    }
+    for (final e in bySeries.entries) {
+      if (e.value.every((b) => b.spineStyle == 'Tomo')) {
+        final st = styleForSeries(e.key);
+        for (final b in e.value) {
+          b.spineStyle = st;
+        }
+      }
+    }
+    _prefs.setBool('fix.sagaStyle', true);
+    save();
+  }
+
+  static String styleForSeries(String series) => SpinePalette.styles[series.toLowerCase().hashCode.abs() % SpinePalette.styles.length];
+
+  /// Applica lo stile del dorso a tutti i volumi della stessa saga.
+  void applySagaStyle(Book from) {
+    if (from.series == null) return;
+    for (final b in books) {
+      if (b.series == from.series) b.spineStyle = from.spineStyle;
+    }
+    save();
+    notifyListeners();
   }
 
   /// Libri importati con la versione 0.1: rifà l'indice raggruppando i capitoli.
@@ -281,6 +341,14 @@ class LibraryStore extends ChangeNotifier {
       await File(coverPath).writeAsBytes(meta.cover!, flush: true);
     }
     final (spine, text) = await CoverColors.fromBytes(meta.cover);
+    // stile del dorso: quello della saga, oppure uno nuovo
+    String style;
+    if (meta.series != null) {
+      final sib = books.where((b) => b.series == meta.series).firstOrNull;
+      style = sib?.spineStyle ?? styleForSeries(meta.series!);
+    } else {
+      style = SpinePalette.styles[id.hashCode.abs() % SpinePalette.styles.length];
+    }
     final book = Book(
       id: id,
       title: meta.title,
@@ -294,6 +362,7 @@ class LibraryStore extends ChangeNotifier {
       spineTextColor: text,
       coverSpineColor: spine,
       coverSpineTextColor: text,
+      spineStyle: style,
       addedAt: DateTime.now(),
     );
     books.add(book);

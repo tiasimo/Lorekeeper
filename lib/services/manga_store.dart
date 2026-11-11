@@ -147,6 +147,18 @@ class SavedManga {
 
   String? spineTitle; // titolo corto sul dorso
 
+  /// Dorso casuale (colore e stile diversi per ogni manga), poi modificabile.
+  void randomSpine() {
+    final h = key.hashCode.abs();
+    final pal = SpinePalette.presets[h % SpinePalette.presets.length];
+    spinePalette = pal.name;
+    spineColor = pal.bg;
+    spineTextColor = pal.text;
+    spineStyle = SpinePalette.styles[(h ~/ 7) % SpinePalette.styles.length];
+    spineHeight = 0.9 + (h % 5) * 0.04;
+    spineWidth = 0.9 + ((h ~/ 3) % 5) * 0.06;
+  }
+
   /// Scaffale: 0 in corso, 1 da leggere, 2 completati.
   int get shelf {
     switch (alStatus) {
@@ -412,6 +424,15 @@ class MangaStore extends ChangeNotifier {
       }
     } catch (_) {}
     await _loadEvents();
+    await MangaDownloads.I.loadPrefs();
+    final sp = await SharedPreferences.getInstance();
+    if (!(sp.getBool('manga.randomSpine') ?? false)) {
+      for (final m in _all.values) {
+        if (m.spinePalette == 'cover') m.randomSpine();
+      }
+      await sp.setBool('manga.randomSpine', true);
+      save();
+    }
     notifyListeners();
   }
 
@@ -474,7 +495,7 @@ class MangaStore extends ChangeNotifier {
       }
       if (e.status == 'DROPPED') continue;
       final key = 'anilist||${e.media.id}';
-      final m = _all[key] ??= SavedManga(sourceId: '', managerId: 'anilist', sourceName: 'AniList', url: '${e.media.id}', title: e.media.title, cover: e.media.cover);
+      final m = _all[key] ??= (SavedManga(sourceId: '', managerId: 'anilist', sourceName: 'AniList', url: '${e.media.id}', title: e.media.title, cover: e.media.cover)..randomSpine());
       m
         ..anilistId = e.media.id
         ..alStatus = e.status
@@ -524,14 +545,14 @@ class MangaStore extends ChangeNotifier {
   SavedManga entry(Source s, DMedia media) {
     final mid = s.managerId ?? s.extensionType;
     final key = '$mid|${s.id}|${media.url}';
-    return _all[key] ??= SavedManga(
+    return _all[key] ??= (SavedManga(
       sourceId: s.id ?? '',
       managerId: mid,
       sourceName: s.name ?? '',
       url: media.url ?? '',
       title: media.title ?? '',
       cover: media.cover,
-    );
+    )..randomSpine());
   }
 
   /// Aggiorna dettagli e capitoli dalla sorgente.

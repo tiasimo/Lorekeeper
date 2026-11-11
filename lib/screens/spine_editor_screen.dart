@@ -21,6 +21,7 @@ class _SpineEditorScreenState extends State<SpineEditorScreen> {
   late double height = widget.book.spineHeight;
   late double width = widget.book.spineWidth;
   late int? titleColor = widget.book.spineTitleColor;
+  bool _saga = true; // stesso stile per tutta la saga
   // colore personalizzato (tonalità, saturazione, luminosità)
   late HSLColor custom = HSLColor.fromColor(Color(widget.book.spineColor));
   late int customText = widget.book.spineTextColor;
@@ -49,6 +50,7 @@ class _SpineEditorScreenState extends State<SpineEditorScreen> {
       widget.onSave!(b);
     } else {
       LibraryStore.I.updateBook(b);
+      if (_saga && b.series != null) LibraryStore.I.applySagaStyle(b);
     }
     Navigator.pop(context);
   }
@@ -247,6 +249,14 @@ class _SpineEditorScreenState extends State<SpineEditorScreen> {
                       ),
                   ]),
                 ),
+                if (widget.onSave == null && b.series != null)
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _saga,
+                    activeColor: LK.accent,
+                    onChanged: (v) => setState(() => _saga = v ?? true),
+                    title: Text('Usa questo stile per tutta la saga «${b.series}»', style: LK.body(14)),
+                  ),
                 const SizedBox(height: 20),
                 const SectionLabel('Dimensioni'),
                 Container(

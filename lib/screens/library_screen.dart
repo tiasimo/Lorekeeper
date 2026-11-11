@@ -17,9 +17,12 @@ import 'settings_screen.dart';
 import 'spine_editor_screen.dart';
 import 'manga/manga_detail.dart';
 import 'manga/manga_home.dart';
+import 'manga/manga_settings.dart';
 import '../services/manga_store.dart';
 import 'stats_screen.dart';
 import '../widgets/shelf_backdrop.dart';
+import '../widgets/seasonal.dart';
+import '../widgets/shelf_customize.dart';
 import '../services/home_widget_sync.dart';
 import '../services/updater.dart';
 import '../widgets/update_dialog.dart';
@@ -33,6 +36,7 @@ class LibraryScreen extends StatefulWidget {
 class _LibraryScreenState extends State<LibraryScreen> {
   final store = LibraryStore.I;
   bool _importing = false;
+  int _mangaView = 0; // manga: 0 libreria, 1 esplora
 
   @override
   void initState() {
@@ -277,12 +281,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
         listenable: store,
         builder: (context, _) {
           final last = store.lastRead;
-          return Stack(children: [
-            SafeArea(
-              child: ListView(
-                padding: const EdgeInsets.only(bottom: 120),
-                children: [
-                  Padding(
+          final section = store.app.section;
+          final header = Padding(
                     padding: const EdgeInsets.fromLTRB(20, 18, 8, 0),
                     child: Row(children: [
                       Expanded(
@@ -299,10 +299,48 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       IconButton(
                         tooltip: 'Impostazioni',
                         icon: LKIcon(LKGlyph.settings, color: LK.accent),
-                        onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
+                        onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => section == 1 ? const MangaSettingsScreen() : const SettingsScreen(),
+                        )),
                       ),
                     ]),
+                  );
+          // Novel | Manga
+          final switcher = Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 2),
+            child: Center(
+              child: Segmented(
+                labels: const ['Novel', 'Manga'],
+                selected: section,
+                onChanged: (i) {
+                  store.app.section = i;
+                  store.saveAppPrefs();
+                },
+              ),
+            ),
+          );
+          return Stack(children: [
+            if (section == 1)
+              SafeArea(
+                child: Column(children: [
+                  header,
+                  switcher,
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 86),
+                      child: MangaSection(view: _mangaView, onExplore: () => setState(() => _mangaView = 1)),
+                    ),
                   ),
+                ]),
+              )
+            else
+            SafeArea(
+              child: ListView(
+                padding: const EdgeInsets.only(bottom: 120),
+                children: [
+                  header,
+                  switcher,
                   const SizedBox(height: 14),
                   if (store.books.length > 1) _sortBar(),
                   _shelf(),
@@ -329,13 +367,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
               right: 0,
               bottom: 22,
               child: Center(
-                child: FloatingNav(selected: 0, items: [
-                  NavItem(LKGlyph.library, 'Libreria', () {}),
-                  NavItem(LKGlyph.read, 'Continua a leggere', _continue),
-                  NavItem(LKGlyph.manga, 'Manga', () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MangaHome()))),
-                  NavItem(LKGlyph.add, 'Importa EPUB', _import),
-                  NavItem(LKGlyph.settings, 'Impostazioni', () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()))),
-                ]),
+                child: section == 1
+                    ? FloatingNav(selected: _mangaView, items: [
+                        NavItem(LKGlyph.library, 'Libreria', () => setState(() => _mangaView = 0)),
+                        NavItem(LKGlyph.search, 'Esplora', () => setState(() => _mangaView = 1)),
+                        NavItem(LKGlyph.settings, 'Impostazioni', () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MangaSettingsScreen()))),
+                      ])
+                    : FloatingNav(selected: 0, items: [
+                        NavItem(LKGlyph.library, 'Libreria', () {}),
+                        NavItem(LKGlyph.read, 'Continua a leggere', _continue),
+                        NavItem(LKGlyph.add, 'Importa EPUB', _import),
+                        NavItem(LKGlyph.settings, 'Impostazioni', () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()))),
+                      ]),
               ),
             ),
             if (_importing)
@@ -468,7 +511,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final books = entries.where((e) => e.startsWith('b:')).length;
     if (auto && books > 0) entries.add('d:${DividerArt.all[key.hashCode.abs() % DividerArt.all.length].id}');
     if (books <= 3) entries.add('o:${_decor[(key.hashCode ~/ 7).abs() % _decor.length]}');
-    final wood = Wood.forKey(key);
+    final wood = store.app.woodFor(key);
+    final season = store.app.decoFor(key) ? currentSeason() : null;
     final list = ListView.separated(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -547,6 +591,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ]),
         Positioned(left: 0, top: 6, bottom: -5, child: ShelfSide(wood: wood)),
         Positioned(right: 0, top: 6, bottom: -5, child: ShelfSide(wood: wood, right: true)),
+        if (season != null) Positioned.fill(child: SeasonalDecor(season: season, boardTop: 240, seed: key.hashCode)),
       ]),
     );
   }
@@ -555,6 +600,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final app = store.app;
     final bg = app.shelfBg;
     final wall = bg != 'Carta' && shelfBackdrops.contains(bg);
+    bool wallOf(String k) {
+      final b = app.bgFor(k);
+      return b != 'Carta' && shelfBackdrops.contains(b);
+    }
     if (app.shelfSort != 'Manuale' || app.shelfFilter != 'Tutti') {
       return ShelfWall(kind: bg, child: _row('_flat', [for (final e in _visible) if (e.startsWith('b:')) e], addButton: true));
     }
@@ -565,22 +614,36 @@ class _LibraryScreenState extends State<LibraryScreen> {
         Padding(
           padding: EdgeInsets.only(top: i == 0 ? 0 : (wall ? 8 : 0)),
           child: ShelfWall(
-            kind: bg,
+            kind: app.bgFor(groups[i].$1),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              if (groups[i].$2 != null)
-                Padding(
-                  padding: EdgeInsets.fromLTRB(wall ? 14 : 24, i == 0 || wall ? 4 : 22, wall ? 14 : 24, 6),
-                  child: shelfTitlePill(
-                    Row(mainAxisSize: wall ? MainAxisSize.min : MainAxisSize.max, children: [
-                      Flexible(child: Text(groups[i].$2!, maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.display(18, color: LK.accent, style: FontStyle.italic))),
-                      const SizedBox(width: 10),
-                      Text('${groups[i].$3.where((e) => e.startsWith('b:')).length} volumi', style: LK.label(10, spacing: 0.6)),
-                    ]),
-                    onWall: wall,
+              Padding(
+                padding: EdgeInsets.fromLTRB(wallOf(groups[i].$1) ? 14 : 24, i == 0 || wallOf(groups[i].$1) ? 4 : 22, wallOf(groups[i].$1) ? 8 : 16, 6),
+                child: Row(children: [
+                  Flexible(
+                    child: shelfTitlePill(
+                      Row(mainAxisSize: MainAxisSize.min, children: [
+                        Flexible(
+                          child: Text(groups[i].$2 ?? 'Altri libri', maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.display(18, color: LK.accent, style: FontStyle.italic)),
+                        ),
+                        const SizedBox(width: 10),
+                        Text('${groups[i].$3.where((e) => e.startsWith('b:')).length} volumi', style: LK.label(10, spacing: 0.6)),
+                      ]),
+                      onWall: wallOf(groups[i].$1),
+                    ),
                   ),
-                )
-              else
-                SizedBox(height: i == 0 || wall ? 8 : 26),
+                  const Spacer(),
+                  IconButton(
+                    tooltip: 'Personalizza lo scaffale',
+                    visualDensity: VisualDensity.compact,
+                    icon: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(color: LK.paper.withValues(alpha: 0.88), shape: BoxShape.circle),
+                      child: Icon(Icons.format_paint_outlined, size: 17, color: LK.muted),
+                    ),
+                    onPressed: () => showShelfCustomize(context, key: groups[i].$1, title: groups[i].$2 ?? 'Altri libri'),
+                  ),
+                ]),
+              ),
               _row(groups[i].$1, groups[i].$3, addButton: i == groups.length - 1),
             ]),
           ),
