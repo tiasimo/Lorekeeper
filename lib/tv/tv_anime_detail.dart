@@ -76,7 +76,7 @@ class _TvAnimeDetailState extends State<TvAnimeDetail> {
         decoration: const BoxDecoration(
           gradient: RadialGradient(center: Alignment(-0.5, -0.4), radius: 1.2, colors: [Color(0xFF2E2420), TV.bg, TV.bgDeep], stops: [0, 0.6, 1]),
         ),
-        padding: const EdgeInsets.fromLTRB(56, 40, 56, 30),
+        padding: const EdgeInsets.fromLTRB(40, 40, 40, 24),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           SizedBox(
             width: 520,

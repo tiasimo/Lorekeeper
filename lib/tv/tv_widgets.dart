@@ -107,12 +107,12 @@ class TvButton extends StatelessWidget {
         scale: 1.05,
         radius: BorderRadius.circular(28),
         child: Container(
-          height: 54,
-          padding: const EdgeInsets.symmetric(horizontal: 26),
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 20),
           decoration: BoxDecoration(color: primary ? TV.ink : const Color(0x1FF3E7CF), borderRadius: BorderRadius.circular(28)),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            if (icon != null) ...[Icon(icon, color: primary ? TV.bg : TV.ink, size: 22), const SizedBox(width: 8)],
-            Text(label.toUpperCase(), style: tvLabel(14, color: primary ? TV.bg : TV.ink, spacing: 1)),
+            if (icon != null) ...[Icon(icon, color: primary ? TV.bg : TV.ink, size: 19), const SizedBox(width: 7)],
+            Text(label.toUpperCase(), style: tvLabel(12, color: primary ? TV.bg : TV.ink, spacing: 1)),
           ]),
         ),
       );

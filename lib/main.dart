@@ -14,6 +14,14 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
   await detectTv();
+  // se una schermata va in errore, mostro il motivo invece di un riquadro grigio
+  ErrorWidget.builder = (details) => Container(
+        color: const Color(0xFF2A1E1A),
+        padding: const EdgeInsets.all(16),
+        alignment: Alignment.center,
+        child: Text('Qualcosa è andato storto qui:\n${details.exceptionAsString()}',
+            textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFFF3E7CF), fontSize: 13, decoration: TextDecoration.none)),
+      );
   final prefs = await SharedPreferences.getInstance();
   LibraryStore.I.appTheme = prefs.getString('appTheme') ?? 'Sistema';
   runApp(const LorekeeperApp());
@@ -105,12 +113,6 @@ class _LorekeeperAppState extends State<LorekeeperApp> with WidgetsBindingObserv
       debugShowCheckedModeBanner: false,
       theme: tvMode ? LK.tvTheme() : LK.theme(),
       // sulla TV i testi sono più grandi, perché si guarda da lontano
-      builder: tvMode
-          ? (context, child) => MediaQuery(
-                data: MediaQuery.of(context).copyWith(textScaler: const TextScaler.linear(1.2)),
-                child: child!,
-              )
-          : null,
       home: const SplashScreen(),
     );
   }

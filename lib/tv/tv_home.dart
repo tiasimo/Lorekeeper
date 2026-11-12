@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:anymex_extension_runtime_bridge/anymex_extension_runtime_bridge.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/book.dart';
 import '../screens/anime/anime_widgets.dart';
@@ -33,9 +34,38 @@ class TvHome extends StatefulWidget {
 
 class _TvHomeState extends State<TvHome> {
   int _tab = 0;
+  final _tabNodes = List.generate(6, (i) => FocusNode(debugLabel: 'tab$i'));
+  final _content = FocusScopeNode(debugLabel: 'contenuto');
+
+  @override
+  void dispose() {
+    for (final n in _tabNodes) {
+      n.dispose();
+    }
+    _content.dispose();
+    super.dispose();
+  }
+
+  /// ▼ dalle schede: va al primo elemento del contenuto (non a quello che sta "sotto").
+  KeyEventResult _tabsKey(FocusNode node, KeyEvent e) {
+    if (e is! KeyDownEvent || e.logicalKey != LogicalKeyboardKey.arrowDown) return KeyEventResult.ignored;
+    final first = _content.traversalDescendants.where((n) => n.canRequestFocus && !n.skipTraversal).firstOrNull;
+    first?.requestFocus();
+    return KeyEventResult.handled;
+  }
+
+  /// ▲ dal contenuto: se sopra non c'è altro, torna alla scheda attiva.
+  KeyEventResult _contentKey(FocusNode node, KeyEvent e) {
+    if (e is! KeyDownEvent || e.logicalKey != LogicalKeyboardKey.arrowUp) return KeyEventResult.ignored;
+    final f = FocusManager.instance.primaryFocus;
+    if (f != null && f.focusInDirection(TraversalDirection.up)) return KeyEventResult.handled;
+    _tabNodes[_tab].requestFocus();
+    return KeyEventResult.handled;
+  }
   String? _info; // titolo dell'elemento a fuoco
   String? _infoSub;
   bool _ready = false;
+  bool _bridge = false; // motore delle estensioni pronto (serve a Cerca ed Estensioni)
 
   static const _tabs = ['Anime', 'Manga', 'Novel', 'Cerca', 'Estensioni', 'Impostazioni'];
 
@@ -60,6 +90,7 @@ class _TvHomeState extends State<TvHome> {
     try {
       await MangaStore.I.ensureBridge();
     } catch (_) {}
+    if (mounted) setState(() => _bridge = true);
     AnimeStore.I.refreshIfDue();
     MangaStore.I.refreshIfDue();
   }
@@ -80,11 +111,16 @@ class _TvHomeState extends State<TvHome> {
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(56, 28, 56, 8),
-            child: Row(children: [
+            padding: const EdgeInsets.fromLTRB(40, 20, 40, 4),
+            child: Focus(
+              skipTraversal: true,
+              canRequestFocus: false,
+              onKeyEvent: _tabsKey,
+              child: FocusTraversalGroup(
+                child: Row(children: [
               Container(
-                width: 42,
-                height: 42,
+                width: 34,
+                height: 34,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(color: TV.accent, borderRadius: BorderRadius.circular(10)),
                 child: Text('L', style: tvDisplay(22, color: Colors.white)),
@@ -92,44 +128,62 @@ class _TvHomeState extends State<TvHome> {
               const SizedBox(width: 22),
               for (var i = 0; i < _tabs.length; i++)
                 Padding(
-                  padding: const EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.only(right: 6),
                   child: TvFocus(
+                    focusNode: _tabNodes[i],
                     autofocus: i == 0,
                     scale: 1.04,
                     radius: BorderRadius.circular(24),
                     onFocus: (f) {
-                      if (f && _tab != i) setState(() => _tab = i);
+                      if (f && _tab != i) {
+                        setState(() {
+                          _tab = i;
+                          _info = null;
+                          _infoSub = null;
+                        });
+                      }
                     },
                     onSelect: () => setState(() => _tab = i),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       decoration: BoxDecoration(color: _tab == i ? TV.ink : Colors.transparent, borderRadius: BorderRadius.circular(24)),
-                      child: Text(_tabs[i].toUpperCase(), style: tvLabel(13, color: _tab == i ? TV.bg : TV.soft, spacing: 1.2)),
+                      child: Text(_tabs[i].toUpperCase(), style: tvLabel(11.5, color: _tab == i ? TV.bg : TV.soft, spacing: 1.1)),
                     ),
                   ),
                 ),
               const Spacer(),
-              Text('${now.hour}:${now.minute.toString().padLeft(2, '0')}', style: tvLabel(16, color: TV.ink, spacing: 0.5)),
+              Text('${now.hour}:${now.minute.toString().padLeft(2, '0')}', style: tvLabel(15, color: TV.ink, spacing: 0.5)),
             ]),
+              ),
+            ),
           ),
           Expanded(
-            child: !_ready
+            child: Focus(
+              skipTraversal: true,
+              canRequestFocus: false,
+              onKeyEvent: _contentKey,
+              child: FocusScope(
+                node: _content,
+                child: !_ready
                 ? const Center(child: CircularProgressIndicator(color: TV.accent))
                 : switch (_tab) {
                     0 => _anime(),
                     1 => _manga(),
                     2 => _novel(),
+                    3 || 4 when !_bridge => const Center(child: CircularProgressIndicator(color: TV.accent)),
                     3 => TvSearch(onFocusInfo: (x) => _focusInfo(x.$1, x.$2)),
                     4 => _extensions(),
                     _ => const TvSettings(),
                   },
+              ),
+            ),
           ),
           // cosa c'è a fuoco
           Padding(
-            padding: const EdgeInsets.fromLTRB(56, 4, 56, 22),
+            padding: const EdgeInsets.fromLTRB(40, 2, 40, 14),
             child: Row(children: [
               if (_info != null) ...[
-                Flexible(child: Text(_info!, maxLines: 1, overflow: TextOverflow.ellipsis, style: tvDisplay(20))),
+                Flexible(child: Text(_info!, maxLines: 1, overflow: TextOverflow.ellipsis, style: tvDisplay(16))),
                 const SizedBox(width: 14),
                 if (_infoSub != null) Flexible(child: Text(_infoSub!, maxLines: 1, overflow: TextOverflow.ellipsis, style: tvBody(14, color: TV.muted))),
               ],
@@ -147,7 +201,7 @@ class _TvHomeState extends State<TvHome> {
 
   Widget _extensions() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(56, 12, 56, 8),
+          padding: const EdgeInsets.fromLTRB(40, 12, 40, 8),
           child: Row(children: [
             TvButton(label: 'Anime', primary: _extAnime, onSelect: () => setState(() => _extAnime = true)),
             const SizedBox(width: 12),
@@ -200,7 +254,7 @@ class _TvHomeState extends State<TvHome> {
               _row(
                 name,
                 '${list.length} SERIE',
-                170,
+                128,
                 [
                   for (final a in list)
                     TvFocus(
@@ -210,7 +264,7 @@ class _TvHomeState extends State<TvHome> {
                         if (f) _focusInfo(a.title, [if (a.newEpisodes > 0) '${a.newEpisodes} episodi nuovi', if (a.alStatus != null) 'AniList: ${alStatuses[a.alStatus] ?? a.alStatus}', if (a.alScore > 0) '★ ${a.alScore}'].join(' · '));
                       },
                       onSelect: () => _openAnime(a),
-                      child: BluRayCase(anime: a, width: 130, badge: a.newEpisodes > 0 ? a.newEpisodes : (a.shelf == 0 && a.total > 0 ? a.unwatched : null)),
+                      child: BluRayCase(anime: a, width: 100, badge: a.newEpisodes > 0 ? a.newEpisodes : (a.shelf == 0 && a.total > 0 ? a.unwatched : null)),
                     ),
                 ],
               ),
@@ -251,7 +305,7 @@ class _TvHomeState extends State<TvHome> {
               _row(
                 name,
                 '${list.length} MANGA',
-                200,
+                150,
                 [
                   for (final m in list)
                     TvFocus(
@@ -265,8 +319,8 @@ class _TvHomeState extends State<TvHome> {
                         ClipRRect(
                           borderRadius: BorderRadius.circular(8),
                           child: SizedBox(
-                            width: 136,
-                            height: 196,
+                            width: 104,
+                            height: 150,
                             child: (m.cover ?? '').isEmpty
                                 ? Container(color: const Color(0xFF3A2E28), alignment: Alignment.center, padding: const EdgeInsets.all(8), child: Text(m.title, textAlign: TextAlign.center, style: tvDisplay(14)))
                                 : MangaImage(m.cover!, sourceId: m.sourceId, managerId: m.managerId),
@@ -319,7 +373,7 @@ class _TvHomeState extends State<TvHome> {
               _row(
                 g.$2 ?? 'Altri libri',
                 '${g.$3.where((e) => e.startsWith('b:')).length} VOLUMI',
-                230,
+                170,
                 [
                   for (final e in g.$3.where((e) => e.startsWith('b:')))
                     if (store.byId(e.substring(2)) case final b?)
@@ -330,7 +384,7 @@ class _TvHomeState extends State<TvHome> {
                           if (f) _focusInfo(b.title, '${b.author}${b.progress > 0 ? ' · ${(b.progress * 100).round()}%' : ''}');
                         },
                         onSelect: () => _openBook(b),
-                        child: SpineView.of(b, baseHeight: 210),
+                        child: SpineView.of(b, baseHeight: 160),
                       ),
                 ],
                 gap: 8,
@@ -343,7 +397,7 @@ class _TvHomeState extends State<TvHome> {
 
   // ---------------- pezzi comuni ----------------
   Widget _empty(String text) => Padding(
-        padding: const EdgeInsets.fromLTRB(56, 60, 56, 0),
+        padding: const EdgeInsets.fromLTRB(40, 60, 40, 0),
         child: Text(text, style: tvBody(18, color: TV.muted)),
       );
 
@@ -360,14 +414,14 @@ class _TvHomeState extends State<TvHome> {
     VoidCallback? onSecondary,
   }) {
     return SizedBox(
-      height: 270,
+      height: 196,
       child: Stack(children: [
         if ((cover ?? '').isNotEmpty)
           Positioned(
             right: 0,
             top: 0,
             bottom: 0,
-            width: 640,
+            width: 560,
             child: ShaderMask(
               shaderCallback: (r) => const LinearGradient(colors: [Colors.transparent, Colors.black], stops: [0, 0.6]).createShader(r),
               blendMode: BlendMode.dstIn,
@@ -384,14 +438,14 @@ class _TvHomeState extends State<TvHome> {
             ),
           ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(56, 20, 56, 0),
+          padding: const EdgeInsets.fromLTRB(40, 12, 40, 0),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(kicker, style: tvLabel(12, color: TV.gold, spacing: 2.4)),
-            const SizedBox(height: 8),
-            SizedBox(width: 640, child: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: tvDisplay(46))),
-            const SizedBox(height: 6),
-            Text(sub, style: tvBody(17)),
-            const SizedBox(height: 22),
+            Text(kicker, style: tvLabel(10.5, color: TV.gold, spacing: 2.2)),
+            const SizedBox(height: 4),
+            SizedBox(width: 620, child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: tvDisplay(32))),
+            const SizedBox(height: 2),
+            Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: tvBody(14)),
+            const SizedBox(height: 14),
             Row(children: [
               TvButton(label: primary, icon: Icons.play_arrow, primary: true, onSelect: onPrimary),
               if (secondary != null) ...[
@@ -405,23 +459,23 @@ class _TvHomeState extends State<TvHome> {
     );
   }
 
-  Widget _row(String name, String count, double height, List<Widget> items, {double gap = 26, CrossAxisAlignment align = CrossAxisAlignment.end}) {
+  Widget _row(String name, String count, double height, List<Widget> items, {double gap = 18, CrossAxisAlignment align = CrossAxisAlignment.end}) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Padding(
-        padding: const EdgeInsets.fromLTRB(56, 18, 56, 10),
+        padding: const EdgeInsets.fromLTRB(40, 10, 40, 0),
         child: Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
-          Text(name, style: tvDisplay(22, color: TV.peach, style: FontStyle.italic)),
+          Text(name, style: tvDisplay(18, color: TV.peach, style: FontStyle.italic)),
           const SizedBox(width: 12),
           Text(count, style: tvLabel(11, spacing: 1.4)),
         ]),
       ),
       SizedBox(
-        height: height + 40,
+        height: height + 28,
         child: FocusTraversalGroup(
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             clipBehavior: Clip.none,
-            padding: const EdgeInsets.fromLTRB(56, 18, 56, 14),
+            padding: const EdgeInsets.fromLTRB(40, 14, 40, 8),
             itemCount: items.length,
             separatorBuilder: (_, __) => SizedBox(width: gap),
             itemBuilder: (_, i) => Align(alignment: align == CrossAxisAlignment.end ? Alignment.bottomCenter : Alignment.center, child: items[i]),
@@ -429,8 +483,8 @@ class _TvHomeState extends State<TvHome> {
         ),
       ),
       Container(
-        height: 12,
-        margin: const EdgeInsets.symmetric(horizontal: 40),
+        height: 9,
+        margin: const EdgeInsets.symmetric(horizontal: 34),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(3),
           gradient: const LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFF5E4433), Color(0xFF3E2C21)]),

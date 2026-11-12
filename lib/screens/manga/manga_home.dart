@@ -11,6 +11,7 @@ import '../../widgets/shelf_backdrop.dart';
 import '../../widgets/seasonal.dart';
 import '../../widgets/decor_objects.dart';
 import '../../widgets/shelf_cat.dart';
+import '../../tv/tv_keyboard.dart';
 import '../../widgets/shelf_customize.dart';
 import '../../services/library_store.dart';
 import '../spine_editor_screen.dart';
@@ -868,6 +869,7 @@ class _ExtensionsTabState extends State<ExtensionsPanel> {
   bool get _anime => widget.type == ItemType.anime;
   String _lang = 'tutte';
   String _filter = '';
+  final _filterCtl = TextEditingController();
   bool _settingUp = false;
   final Set<String> _busy = {};
 
@@ -895,10 +897,11 @@ class _ExtensionsTabState extends State<ExtensionsPanel> {
                 ),
             ]),
             const SizedBox(height: 12),
-            TextField(
+            TvTextField(
               controller: url,
               autofocus: true,
-              keyboardType: TextInputType.url,
+              url: true,
+              hint: 'Indirizzo del repository',
               decoration: InputDecoration(
                 hintText: manager == 'aniyomi' ? 'https://…/index.min.json' : (_anime ? 'https://…/anime_index.json' : 'https://…/manga_index.json'),
                 labelText: 'Indirizzo del repository',
@@ -1074,7 +1077,9 @@ class _ExtensionsTabState extends State<ExtensionsPanel> {
             for (final s in installed) _sourceRow(s, installed: true),
             const SizedBox(height: 18),
             SectionLabel('Disponibili (${available.length})'),
-            TextField(
+            TvTextField(
+              controller: _filterCtl,
+              hint: 'Filtra per nome…',
               onChanged: (v) => setState(() => _filter = v.trim().toLowerCase()),
               decoration: InputDecoration(
                 hintText: 'Filtra per nome…',

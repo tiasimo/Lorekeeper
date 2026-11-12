@@ -15,7 +15,10 @@ class Backup {
   static const _prefKeys = ['stats.days', 'stats.chdays', 'stats.mdays', 'stats.mchdays', 'manga.reader', 'manga.categories', 'stats.finished', 'stats.chapters', 'app.prefs', 'reader.prefs', 'speed.cps', 'readerName', 'app.theme', 'stats.adays', 'stats.aepdays', 'anime.history', 'anilist.user', 'anilist.name', 'anilist.avatar', 'anilist.client', 'manga.imgBridge'];
 
   /// Crea il file .zip da condividere (Drive, email…).
-  static Future<File> export() async {
+  /// Dati in più passati solo dalla sincronizzazione Drive (estensioni, accesso AniList).
+  static Map<String, dynamic>? lastExtra;
+
+  static Future<File> export({Map<String, dynamic>? extra}) async {
     final root = Directory(LibraryStore.I.dataDir);
     final arch = Archive();
     void addFile(File f, String name) {
@@ -52,7 +55,7 @@ class Backup {
       final v = prefs.get(k);
       if (v != null) pj[k] = v;
     }
-    final pb = utf8.encode(jsonEncode({'v': 1, 'prefs': pj, 'root': root.path, 'at': DateTime.now().toIso8601String()}));
+    final pb = utf8.encode(jsonEncode({'v': 1, 'prefs': pj, 'root': root.path, 'at': DateTime.now().toIso8601String(), if (extra != null) 'extra': extra}));
     arch.addFile(ArchiveFile('backup.json', pb.length, pb));
     final zip = ZipEncoder().encode(arch)!;
     final d = DateTime.now();
@@ -68,6 +71,7 @@ class Backup {
     final meta = arch.findFile('backup.json');
     if (meta == null || arch.findFile('library.json') == null) throw Exception('Questo file non è un backup di Lorekeeper');
     final info = jsonDecode(utf8.decode(meta.content as List<int>)) as Map;
+    lastExtra = (info['extra'] as Map?)?.cast<String, dynamic>();
     final root = LibraryStore.I.dataDir;
     final oldRoot = (info['root'] as String?) ?? root;
     for (final f in arch.files) {

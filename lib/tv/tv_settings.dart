@@ -29,15 +29,15 @@ class _TvSettingsState extends State<TvSettings> {
   }
 
   Widget _section(String title, String text, List<Widget> actions) => Container(
-        margin: const EdgeInsets.only(bottom: 18),
-        padding: const EdgeInsets.all(22),
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(color: const Color(0x10F3E7CF), borderRadius: BorderRadius.circular(18)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, style: tvDisplay(22)),
+          Text(title, style: tvDisplay(19)),
           const SizedBox(height: 6),
-          Text(text, style: tvBody(15)),
-          const SizedBox(height: 16),
-          Wrap(spacing: 12, runSpacing: 12, children: actions),
+          Text(text, style: tvBody(14)),
+          const SizedBox(height: 12),
+          Wrap(spacing: 10, runSpacing: 10, children: actions),
         ]),
       );
 
@@ -48,7 +48,7 @@ class _TvSettingsState extends State<TvSettings> {
     final al = AniList.I;
     return ListenableBuilder(
       listenable: d,
-      builder: (context, _) => ListView(padding: const EdgeInsets.fromLTRB(56, 16, 56, 30), children: [
+      builder: (context, _) => ListView(padding: const EdgeInsets.fromLTRB(40, 12, 40, 24), children: [
         if (_msg != null) Padding(padding: const EdgeInsets.only(bottom: 14), child: Text(_msg!, style: tvBody(16, color: TV.peach))),
         _section(
           'Sincronizzazione con Google Drive',
@@ -67,11 +67,12 @@ class _TvSettingsState extends State<TvSettings> {
         ),
         _section(
           'AniList',
-          al.loggedIn ? 'Collegato come ${al.userName ?? 'utente'}.' : 'Per collegarlo serve un browser sulla TV. In alternativa gli stati arrivano comunque con la sincronizzazione.',
+          al.loggedIn ? 'Collegato come ${al.userName ?? 'utente'}.' : 'Sulla TV non c\'è un browser per l\'accesso: collega AniList sul telefono e sincronizza con Google Drive, l\'accesso arriva qui da solo.',
           [
+            if (!al.loggedIn && d.enabled) TvButton(label: 'Prendi l\'accesso dal telefono', icon: Icons.sync, primary: true, onSelect: () => d.sync()),
             if (!al.loggedIn)
               TvButton(
-                label: 'Collega AniList',
+                label: 'Prova con il browser',
                 onSelect: () async {
                   try {
                     await al.login();

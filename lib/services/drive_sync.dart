@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:anymex_extension_runtime_bridge/anymex_extension_runtime_bridge.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -10,6 +12,7 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'anime_store.dart';
+import 'anilist.dart';
 import 'backup.dart';
 import 'manga_store.dart';
 import 'library_store.dart';
@@ -143,6 +146,8 @@ class DriveSync extends ChangeNotifier {
         final f = File(p.join(Directory.systemTemp.path, _dataName));
         await f.writeAsBytes(bytes);
         await Backup.restore(f.path);
+        final extra = Backup.lastExtra;
+        if (extra != null) unawaited(_applyExtras(extra));
         await AnimeStore.I.reload();
         await MangaStore.I.reload();
         await prefs.setInt('sync.at', remoteAt);
@@ -151,7 +156,7 @@ class DriveSync extends ChangeNotifier {
       } else if (dirty > last || remote.isEmpty || forcePush) {
         _set('Carico i dati su Drive…');
         final now = DateTime.now().millisecondsSinceEpoch;
-        final f = await Backup.export();
+        final f = await Backup.export(extra: await _extras());
         await _put(_dataName, await f.readAsBytes(), id: remote.isEmpty ? null : remote.first['id'] as String, props: {'at': '$now'}, mime: 'application/zip');
         await prefs.setInt('sync.at', now);
         await prefs.remove('sync.dirty');
@@ -167,6 +172,80 @@ class DriveSync extends ChangeNotifier {
       busy = false;
       _set(null);
     }
+  }
+
+  // ---------- estensioni e AniList tra dispositivi ----------
+
+  static const _types = {'manga': ItemType.manga, 'anime': ItemType.anime};
+
+  /// Cosa portare sull'altro dispositivo: repository, sorgenti installate e accesso AniList.
+  Future<Map<String, dynamic>> _extras() async {
+    final out = <String, dynamic>{};
+    await AniList.I.load();
+    if (AniList.I.token != null) out['anilist'] = AniList.I.token;
+    try {
+      final st = MangaStore.I;
+      if (!st.bridgeReady) await st.ensureBridge().timeout(const Duration(seconds: 25)).catchError((_) {});
+      if (st.bridgeReady) {
+        final ext = st.ext;
+        out['repos'] = [
+          for (final t in _types.entries)
+            for (final mid in MangaStore.managers.keys)
+              for (final r in ext.getReposRx(t.value, mid).value) {'t': t.key, 'mid': mid, 'url': r.url},
+        ];
+        out['installed'] = [
+          for (final s in ext.installedMangaExtensions) {'t': 'manga', 'mid': '${s.managerId ?? s.extensionType}', 'id': s.id},
+          for (final s in ext.installedAnimeExtensions) {'t': 'anime', 'mid': '${s.managerId ?? s.extensionType}', 'id': s.id},
+        ];
+      }
+    } catch (_) {}
+    return out;
+  }
+
+  /// Applica quello che arriva dall'altro dispositivo (senza toccare quello che c'è già).
+  Future<void> _applyExtras(Map<String, dynamic> extra) async {
+    final token = extra['anilist'] as String?;
+    try {
+      await AniList.I.load();
+      if (token != null && !AniList.I.loggedIn) await AniList.I.adoptToken(token);
+    } catch (_) {}
+    final repos = (extra['repos'] as List?)?.cast<Map>() ?? const [];
+    final inst = (extra['installed'] as List?)?.cast<Map>() ?? const [];
+    if (repos.isEmpty && inst.isEmpty) return;
+    try {
+      final st = MangaStore.I;
+      await st.ensureBridge();
+      final ext = st.ext;
+      var added = false;
+      for (final r in repos) {
+        final type = _types[r['t']];
+        final mid = r['mid'] as String?, url = r['url'] as String?;
+        if (type == null || mid == null || url == null) continue;
+        if (ext.getReposRx(type, mid).value.any((x) => x.url == url)) continue;
+        try {
+          await ext.addRepo(url, type, mid);
+          added = true;
+        } catch (_) {}
+      }
+      if (inst.any((e) => e['mid'] == 'aniyomi') && !st.mihonReady) {
+        try {
+          await st.setupMihon();
+        } catch (_) {}
+      }
+      if (added) await ext.refreshExtensions(refreshAvailableSource: true);
+      for (final e in inst) {
+        final anime = e['t'] == 'anime';
+        final have = (anime ? ext.installedAnimeExtensions : ext.installedMangaExtensions).any((s) => s.id == e['id'] && '${s.managerId ?? s.extensionType}' == e['mid']);
+        if (have) continue;
+        final avail = (anime ? ext.availableAnimeExtensions : ext.availableMangaExtensions).where((s) => s.id == e['id'] && '${s.managerId ?? s.extensionType}' == e['mid']).toList();
+        if (avail.isEmpty) continue;
+        try {
+          _set('Installo ${avail.first.name}…');
+          await avail.first.install();
+        } catch (_) {}
+      }
+      _set(null);
+    } catch (_) {}
   }
 
   /// Gli EPUB vengono caricati una sola volta ciascuno.

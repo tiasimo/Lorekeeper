@@ -470,6 +470,9 @@ class MangaStore extends ChangeNotifier {
   /// Avvia il motore delle estensioni (una volta sola).
   Future<void> ensureBridge() => _bridge ??= _initBridge();
 
+  /// Il motore delle estensioni è già partito (senza avviarlo).
+  bool get bridgeReady => _bridge != null && bridgeError == null;
+
   /// Ultimi messaggi del motore delle estensioni (per capire perché una sorgente non va).
   static final List<String> bridgeLogs = [];
 

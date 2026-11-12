@@ -5,6 +5,7 @@ import '../services/anime_store.dart';
 import '../services/manga_store.dart';
 import '../widgets/manga_image.dart';
 import 'tv_anime_detail.dart';
+import 'tv_keyboard.dart';
 import 'tv_manga_detail.dart';
 import 'tv_widgets.dart';
 
@@ -56,17 +57,16 @@ class _TvSearchState extends State<TvSearch> {
   Widget build(BuildContext context) {
     return ListView(padding: const EdgeInsets.only(bottom: 20), children: [
       Padding(
-        padding: const EdgeInsets.fromLTRB(56, 16, 56, 8),
+        padding: const EdgeInsets.fromLTRB(40, 16, 40, 8),
         child: Row(children: [
           Expanded(
-            child: TextField(
+            child: TvTextField(
               controller: _q,
-              style: tvDisplay(24),
-              cursorColor: TV.accent,
-              textInputAction: TextInputAction.search,
+              hint: 'Cerca un titolo',
+              style: tvDisplay(22),
               onSubmitted: (_) => _search(),
               decoration: InputDecoration(
-                hintText: 'Scrivi il titolo e premi Cerca',
+                hintText: 'Premi OK per scrivere il titolo',
                 hintStyle: tvBody(20, color: TV.muted),
                 prefixIcon: const Icon(Icons.search, color: TV.muted, size: 28),
                 filled: true,
@@ -85,18 +85,18 @@ class _TvSearchState extends State<TvSearch> {
           TvButton(label: 'Cerca', icon: Icons.search, onSelect: _search),
         ]),
       ),
-      if (_pending > 0) const Padding(padding: EdgeInsets.symmetric(horizontal: 56), child: LinearProgressIndicator(color: TV.accent, backgroundColor: Color(0x22F3E7CF))),
+      if (_pending > 0) const Padding(padding: EdgeInsets.symmetric(horizontal: 40), child: LinearProgressIndicator(color: TV.accent, backgroundColor: Color(0x22F3E7CF))),
       if (_sources.isEmpty)
         Padding(
-          padding: const EdgeInsets.fromLTRB(56, 40, 56, 0),
+          padding: const EdgeInsets.fromLTRB(40, 40, 40, 0),
           child: Text('Nessuna sorgente ${_anime ? 'anime' : 'manga'} installata: aggiungila dalla scheda Estensioni.', style: tvBody(18, color: TV.muted)),
         )
       else if (_res.isEmpty && _pending == 0 && _q.text.trim().isNotEmpty)
-        Padding(padding: const EdgeInsets.fromLTRB(56, 40, 56, 0), child: Text('Nessuna sorgente l\'ha trovato.', style: tvBody(18, color: TV.muted))),
+        Padding(padding: const EdgeInsets.fromLTRB(40, 40, 40, 0), child: Text('Nessuna sorgente l\'ha trovato.', style: tvBody(18, color: TV.muted))),
       for (final (s, list) in _res)
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(56, 20, 56, 4),
+            padding: const EdgeInsets.fromLTRB(40, 20, 40, 4),
             child: Text('${s.name} · ${(s.lang ?? '').toUpperCase()}', style: tvLabel(13, color: TV.peach, spacing: 1)),
           ),
           SizedBox(
@@ -105,7 +105,7 @@ class _TvSearchState extends State<TvSearch> {
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 clipBehavior: Clip.none,
-                padding: const EdgeInsets.fromLTRB(56, 14, 56, 14),
+                padding: const EdgeInsets.fromLTRB(40, 14, 40, 14),
                 itemCount: list.length,
                 separatorBuilder: (_, __) => const SizedBox(width: 22),
                 itemBuilder: (_, i) {

@@ -107,6 +107,30 @@ class AniList extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Il token (per portare l'accesso sugli altri dispositivi con la sincronizzazione).
+  String? get token => _token;
+
+  /// Accesso con un token arrivato da un altro dispositivo (es. la TV, senza browser).
+  Future<void> adoptToken(String token) async {
+    _token = token;
+    try {
+      final v = await _query('query { Viewer { id name avatar { medium } } }');
+      final viewer = v['Viewer'] as Map;
+      userId = viewer['id'] as int;
+      userName = viewer['name'] as String?;
+      avatar = (viewer['avatar'] as Map?)?['medium'] as String?;
+    } catch (_) {
+      _token = null;
+      return;
+    }
+    await _secure.write(key: 'anilist_token', value: token);
+    final p = await SharedPreferences.getInstance();
+    await p.setInt('anilist.user', userId!);
+    if (userName != null) await p.setString('anilist.name', userName!);
+    if (avatar != null) await p.setString('anilist.avatar', avatar!);
+    notifyListeners();
+  }
+
   Future<void> logout() async {
     _token = null;
     userId = null;
