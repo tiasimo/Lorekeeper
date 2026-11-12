@@ -263,6 +263,16 @@ class _AnimeDetailState extends State<AnimeDetail> {
     );
   }
 
+  /// Data di uscita leggibile (le sorgenti la danno in millisecondi, o 0 se non la sanno).
+  static String? _date(String? raw) {
+    if (raw == null || raw.isEmpty || raw == '0') return null;
+    final ms = int.tryParse(raw);
+    if (ms == null) return raw;
+    if (ms <= 0) return null;
+    final d = DateTime.fromMillisecondsSinceEpoch(ms);
+    return '${d.day}/${d.month}/${d.year}';
+  }
+
   Widget _episodeRow(MChapter e) {
     final seen = a.isWatched(e);
     final pos = a.positions[e.url] ?? 0;
@@ -292,7 +302,7 @@ class _AnimeDetailState extends State<AnimeDetail> {
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text(e.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.body(14, color: seen ? LK.muted : LK.ink)),
                   if (pos > 0 && !seen) Text('Ripreso da ${pos ~/ 60}:${(pos % 60).toString().padLeft(2, '0')}', style: LK.body(11.5, color: LK.accent)),
-                  if (pos == 0 && (e.date ?? '').isNotEmpty) Text(e.date!, style: LK.body(11.5, color: LK.muted)),
+                  if (pos == 0 && _date(e.date) != null) Text(_date(e.date)!, style: LK.body(11.5, color: LK.muted)),
                 ]),
               ),
               if (seen) Icon(Icons.check, color: const Color(0xFF2F7A5B), size: 20) else Icon(Icons.play_circle_outline, color: LK.accent),

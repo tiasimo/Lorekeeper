@@ -198,7 +198,8 @@ class _OpeningCaseState extends State<OpeningCase> with TickerProviderStateMixin
           animation: Listenable.merge([_open, _spin]),
           builder: (context, _) {
             final t = Curves.easeInOutCubic.transform(_open.value);
-            final angle = -math.pi * t;
+            // la copertina viene verso chi guarda mentre si apre (come una custodia vera)
+            final angle = math.pi * t;
             final showBack = t > 0.5;
             // il fondo della custodia (libretto e vassoio del disco) compare mentre si apre
             final booklet = Container(
