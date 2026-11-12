@@ -460,7 +460,23 @@ class MangaStore extends ChangeNotifier {
   /// Avvia il motore delle estensioni (una volta sola).
   Future<void> ensureBridge() => _bridge ??= _initBridge();
 
+  /// Ultimi messaggi del motore delle estensioni (per capire perché una sorgente non va).
+  static final List<String> bridgeLogs = [];
+
+  /// L'ultimo errore registrato che contiene [what] (es. 'getVideoList').
+  static String? lastLog(String what) {
+    for (var i = bridgeLogs.length - 1; i >= 0 && i >= bridgeLogs.length - 60; i--) {
+      if (bridgeLogs[i].contains(what)) return bridgeLogs[i];
+    }
+    return null;
+  }
+
   Future<void> _initBridge() async {
+    AnymeXExtensionBridge.onLog = (log, show) {
+      bridgeLogs.add(log.length > 1500 ? log.substring(0, 1500) : log);
+      if (bridgeLogs.length > 200) bridgeLogs.removeRange(0, bridgeLogs.length - 200);
+      debugPrint(log);
+    };
     try {
       await AnymeXExtensionBridge.init(
         projectName: 'Lorekeeper',

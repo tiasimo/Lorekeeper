@@ -279,7 +279,10 @@ class AnimeStore extends ChangeNotifier {
     watched ? a.watched.add(c.url) : a.watched.remove(c.url);
     if (watched) a.positions.remove(c.url);
     save();
-    if (watched && !was) _syncProgress(a, a.numberOf(c));
+    if (watched && !was) {
+      LibraryStore.I.animeEpisodeFinished();
+      _syncProgress(a, a.numberOf(c));
+    }
   }
 
   String? syncError;

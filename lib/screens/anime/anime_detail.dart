@@ -200,48 +200,8 @@ class _AnimeDetailState extends State<AnimeDetail> {
                 icon: Icon(a.inLibrary ? Icons.bookmark : Icons.bookmark_add_outlined, color: a.inLibrary ? LK.accent : LK.ink),
               ),
             ]),
-            // custodia aperta
-            Container(
-              height: 210,
-              padding: const EdgeInsets.all(5),
-              decoration: BoxDecoration(
-                color: a.caseStyle == '4K' ? const Color(0xFF141416) : const Color(0xFF0F3E8C),
-                borderRadius: BorderRadius.circular(10),
-                boxShadow: const [BoxShadow(color: Color(0x47000000), blurRadius: 18, offset: Offset(0, 10))],
-              ),
-              child: Row(children: [
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(color: const Color(0xFFF7F1E4), borderRadius: BorderRadius.circular(5)),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text('LIBRETTO', style: LK.label(8, spacing: 1.4)),
-                      const SizedBox(height: 4),
-                      Text(a.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: LK.display(15, color: const Color(0xFF2A2420)).copyWith(height: 1.15)),
-                      const SizedBox(height: 6),
-                      Expanded(
-                        child: Text(a.description ?? 'Trama non disponibile.', overflow: TextOverflow.fade, style: LK.body(11, color: const Color(0xFF5E534B), height: 1.4)),
-                      ),
-                      if (a.genres.isNotEmpty)
-                        Text(a.genres.take(3).join(' · '), maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.label(8.5, color: const Color(0xFF6B5F57), spacing: 0.4)),
-                    ]),
-                  ),
-                ),
-                const SizedBox(width: 5),
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(5),
-                      gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF1A4F9E), Color(0xFF0B2F6A)]),
-                    ),
-                    child: Stack(alignment: Alignment.center, children: [
-                      BluRayDisc(anime: a, size: 140),
-                      Positioned(bottom: 8, child: Text('${a.total} EPISODI', style: LK.label(7.5, color: Colors.white70, spacing: 1.2))),
-                    ]),
-                  ),
-                ),
-              ]),
-            ),
+            // la custodia si apre: la copertina gira sul dorso e scopre libretto e disco
+            OpeningCase(anime: a),
             const SizedBox(height: 14),
             Wrap(spacing: 8, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
               ActionChip(

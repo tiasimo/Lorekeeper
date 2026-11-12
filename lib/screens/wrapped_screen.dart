@@ -20,7 +20,7 @@ const _weekdays = ['lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 
 /// Riepilogo di un anno di letture.
 class YearRecap {
   final int year;
-  int novelSeconds = 0, mangaSeconds = 0, novelChapters = 0, mangaChapters = 0, days = 0, bestStreak = 0;
+  int novelSeconds = 0, mangaSeconds = 0, animeSeconds = 0, novelChapters = 0, mangaChapters = 0, episodes = 0, days = 0, bestStreak = 0;
   int? bestMonth, bestWeekday;
   final List<Book> finished = [];
   final List<(SavedManga, int)> topManga = [];
@@ -46,6 +46,8 @@ class YearRecap {
 
     scan(s.secondsByDay, (v) => novelSeconds += v, time: true);
     scan(s.mangaSecondsByDay, (v) => mangaSeconds += v, time: true);
+    scan(s.animeSecondsByDay, (v) => animeSeconds += v, time: true);
+    scan(s.animeEpisodesByDay, (v) => episodes += v);
     scan(s.chaptersByDay, (v) => novelChapters += v);
     scan(s.mangaChaptersByDay, (v) => mangaChapters += v);
     days = active.length;
@@ -85,8 +87,8 @@ class YearRecap {
     }
   }
 
-  int get hours => ((novelSeconds + mangaSeconds) / 3600).round();
-  bool get empty => novelSeconds + mangaSeconds == 0 && finished.isEmpty && novelChapters + mangaChapters == 0;
+  int get hours => ((novelSeconds + mangaSeconds + animeSeconds) / 3600).round();
+  bool get empty => novelSeconds + mangaSeconds + animeSeconds == 0 && episodes == 0 && finished.isEmpty && novelChapters + mangaChapters == 0;
 
   /// Un titolo da lettore, in base a come hai letto.
   String get title {
@@ -213,6 +215,7 @@ class _RecapCard extends StatelessWidget {
               _stat('${r.hours}', 'ore lette'),
               _stat('${r.novelChapters + r.mangaChapters}', 'capitoli'),
               _stat('${r.days}', 'giorni'),
+              if (r.episodes > 0) _stat('${r.episodes}', 'episodi'),
             ]),
             const SizedBox(height: 18),
             Container(height: 1, color: const Color(0x33E2B95C)),

@@ -18,14 +18,14 @@ class TodayPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = LibraryStore.I;
     final now = DateTime.now();
-    final today = (s.secondsByDay[LibraryStore.dayKey(now)] ?? 0) + (s.mangaSecondsByDay[LibraryStore.dayKey(now)] ?? 0);
+    final today = (s.secondsByDay[LibraryStore.dayKey(now)] ?? 0) + (s.mangaSecondsByDay[LibraryStore.dayKey(now)] ?? 0) + (s.animeSecondsByDay[LibraryStore.dayKey(now)] ?? 0);
     final goal = s.app.goalMinutes * 60;
     final week = [
       for (var i = 6; i >= 0; i--)
         () {
           final d = now.subtract(Duration(days: i));
           final k = LibraryStore.dayKey(d);
-          return (d, (s.secondsByDay[k] ?? 0) + (s.mangaSecondsByDay[k] ?? 0));
+          return (d, (s.secondsByDay[k] ?? 0) + (s.mangaSecondsByDay[k] ?? 0) + (s.animeSecondsByDay[k] ?? 0));
         }(),
     ];
     final maxWeek = week.map((e) => e.$2).fold<int>(1, math.max);

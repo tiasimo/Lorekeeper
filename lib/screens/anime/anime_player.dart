@@ -10,6 +10,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../services/anime_store.dart';
+import '../../services/library_store.dart';
 import '../../services/manga_store.dart';
 import '../../theme.dart';
 
@@ -66,7 +67,10 @@ class _AnimePlayerState extends State<AnimePlayer> {
         if (mounted && _current != null && _pos == Duration.zero) setState(() => _error = e);
       }),
     ]);
-    _saveTick = Timer.periodic(const Duration(seconds: 5), (_) => _savePos());
+    _saveTick = Timer.periodic(const Duration(seconds: 5), (_) {
+      _savePos();
+      if (_playing && !_buffering) LibraryStore.I.addAnimeTime(5);
+    });
     _open(_ep);
   }
 
@@ -85,9 +89,19 @@ class _AnimePlayerState extends State<AnimePlayer> {
       _pos = Duration.zero;
     });
     try {
-      final list = await widget.source.methods.getVideoList(ep.toEpisode());
+      final before = MangaStore.bridgeLogs.length;
+      var list = await widget.source.methods.getVideoList(ep.toEpisode());
+      if (list.isEmpty) {
+        // a volte la sorgente risponde al secondo tentativo
+        await Future.delayed(const Duration(milliseconds: 600));
+        list = await widget.source.methods.getVideoList(ep.toEpisode());
+      }
       if (my != _run || !mounted) return;
-      if (list.isEmpty) throw Exception('nessun video trovato per questo episodio');
+      if (list.isEmpty) {
+        final logs = MangaStore.bridgeLogs.length > before ? MangaStore.bridgeLogs.sublist(before) : const <String>[];
+        final why = logs.where((l) => l.contains('getVideoList') || l.toLowerCase().contains('error') || l.contains('Exception')).lastOrNull;
+        throw Exception('la sorgente non ha restituito nessun video per questo episodio${why == null ? '' : '\n\nDettagli: $why'}');
+      }
       _videos = list;
       final prefs = await SharedPreferences.getInstance();
       final want = prefs.getString('anime.quality') ?? 'alta';
@@ -95,7 +109,7 @@ class _AnimePlayerState extends State<AnimePlayer> {
       await _play(_current!, start: a.positions[ep.url] ?? 0);
       _loadSkips(ep);
     } catch (e) {
-      if (my == _run && mounted) setState(() => _error = '$e');
+      if (my == _run && mounted) setState(() => _error = '$e'.replaceFirst('Exception: ', ''));
     } finally {
       if (my == _run && mounted) setState(() => _loading = false);
     }
@@ -333,7 +347,7 @@ class _AnimePlayerState extends State<AnimePlayer> {
           onDoubleTap: () {},
         ),
       ),
-      if (_buffering || _loading) const Center(child: CircularProgressIndicator(color: Colors.white)),
+      if ((_buffering || _loading) && _error == null) const Center(child: CircularProgressIndicator(color: Colors.white)),
       if (_error != null)
         Center(
           child: Padding(
@@ -341,10 +355,18 @@ class _AnimePlayerState extends State<AnimePlayer> {
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Text('Non riesco a riprodurre l\'episodio.', style: LK.display(17, color: white)),
               const SizedBox(height: 6),
-              Text(_error!, maxLines: 3, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: LK.body(12.5, color: Colors.white70)),
+              Text(_error!, maxLines: 4, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: LK.body(12.5, color: Colors.white70)),
               const SizedBox(height: 12),
               Wrap(spacing: 8, children: [
                 if (_videos.length > 1) OutlinedButton(onPressed: _qualitySheet, style: OutlinedButton.styleFrom(foregroundColor: white), child: const Text('Cambia server')),
+                OutlinedButton(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: '${a.sourceName} · ${_ep.url}\n$_error\n\n${MangaStore.bridgeLogs.reversed.take(15).join('\n')}'));
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Dettagli copiati: incollameli in chat')));
+                  },
+                  style: OutlinedButton.styleFrom(foregroundColor: white),
+                  child: const Text('Copia dettagli'),
+                ),
                 FilledButton(onPressed: () => _open(_ep), style: FilledButton.styleFrom(backgroundColor: LK.accent), child: const Text('Riprova')),
               ]),
             ]),

@@ -25,19 +25,32 @@ class _StatsScreenState extends State<StatsScreen> {
   DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
   int _year = DateTime.now().year;
 
-  int _what = 0; // 0 tutto, 1 novel, 2 manga
+  int _what = 0; // 0 tutto, 1 novel, 2 manga, 3 anime
 
   int _secs(DateTime d) {
     final k = LibraryStore.dayKey(d);
-    final n = store.secondsByDay[k] ?? 0, m = store.mangaSecondsByDay[k] ?? 0;
-    return _what == 1 ? n : (_what == 2 ? m : n + m);
+    final n = store.secondsByDay[k] ?? 0, m = store.mangaSecondsByDay[k] ?? 0, a = store.animeSecondsByDay[k] ?? 0;
+    return switch (_what) { 1 => n, 2 => m, 3 => a, _ => n + m + a };
   }
 
+  /// Capitoli (o episodi, per gli anime).
   int _chs(DateTime d) {
     final k = LibraryStore.dayKey(d);
-    final n = store.chaptersByDay[k] ?? 0, m = store.mangaChaptersByDay[k] ?? 0;
-    return _what == 1 ? n : (_what == 2 ? m : n + m);
+    final n = store.chaptersByDay[k] ?? 0, m = store.mangaChaptersByDay[k] ?? 0, a = store.animeEpisodesByDay[k] ?? 0;
+    return switch (_what) { 1 => n, 2 => m, 3 => a, _ => n + m };
   }
+
+  /// Episodi visti nel periodo (per "Tutto" si mostrano a parte).
+  int _eps(bool Function(DateTime) inRange) {
+    var n = 0;
+    store.animeEpisodesByDay.forEach((k, v) {
+      final p = k.split('-');
+      if (p.length == 3 && inRange(DateTime(int.parse(p[0]), int.parse(p[1]), int.parse(p[2])))) n += v;
+    });
+    return n;
+  }
+
+  String get _chLabel => _what == 3 ? 'EPISODI' : 'CAPITOLI';
 
   String _fmt(int secs) {
     final m = secs ~/ 60;
@@ -89,7 +102,7 @@ class _StatsScreenState extends State<StatsScreen> {
       if (s > best) best = s;
       chs += _chs(DateTime(first.year, first.month, d));
     }
-    final done = _what == 2 ? <(Book, DateTime)>[] : _finished((d) => d.year == first.year && d.month == first.month);
+    final done = _what >= 2 ? <(Book, DateTime)>[] : _finished((d) => d.year == first.year && d.month == first.month);
     final today = DateTime.now();
     return [
       Row(children: [
@@ -140,7 +153,7 @@ class _StatsScreenState extends State<StatsScreen> {
         const SizedBox(width: 8),
         _stat('$read', 'GIORNI'),
         const SizedBox(width: 8),
-        _stat('$chs', 'CAPITOLI'),
+        _stat('$chs', _chLabel),
       ]),
       const SizedBox(height: 8),
       Row(children: [
@@ -148,7 +161,7 @@ class _StatsScreenState extends State<StatsScreen> {
         const SizedBox(width: 8),
         _stat(best == 0 ? '—' : _fmt(best), 'GIORNO MIGLIORE'),
         const SizedBox(width: 8),
-        _stat('${done.length}', 'LIBRI FINITI'),
+        _what == 0 ? _stat('${_eps((d) => d.year == first.year && d.month == first.month)}', 'EPISODI') : _stat('${done.length}', 'LIBRI FINITI'),
       ]),
       ..._finishedList(done),
     ];
@@ -167,7 +180,7 @@ class _StatsScreenState extends State<StatsScreen> {
       chs += _chs(d);
     }
     final maxM = math.max(1, perMonth.reduce(math.max));
-    final done = _what == 2 ? <(Book, DateTime)>[] : _finished((d) => d.year == _year);
+    final done = _what >= 2 ? <(Book, DateTime)>[] : _finished((d) => d.year == _year);
     final now = DateTime.now();
     // mappa di calore: 53 settimane × 7 giorni
     final start = DateTime(_year).subtract(Duration(days: (DateTime(_year).weekday + 6) % 7));
@@ -183,9 +196,9 @@ class _StatsScreenState extends State<StatsScreen> {
         const SizedBox(width: 8),
         _stat('$read', 'GIORNI'),
         const SizedBox(width: 8),
-        _stat('$chs', 'CAPITOLI'),
+        _stat('$chs', _chLabel),
         const SizedBox(width: 8),
-        _stat('${done.length}', 'LIBRI'),
+        _what == 0 ? _stat('${_eps((d) => d.year == _year)}', 'EPISODI') : _stat('${done.length}', 'LIBRI'),
       ]),
       const SizedBox(height: 18),
       const SectionLabel('Mese per mese'),
@@ -295,7 +308,7 @@ class _StatsScreenState extends State<StatsScreen> {
             const SizedBox(height: 8),
             Center(
               child: Wrap(spacing: 6, children: [
-                for (final (i, l) in const [(0, 'Tutto'), (1, 'Novel'), (2, 'Manga')])
+                for (final (i, l) in const [(0, 'Tutto'), (1, 'Novel'), (2, 'Manga'), (3, 'Anime')])
                   ChoiceChip(
                     label: Text(l, style: LK.body(13)),
                     selected: _what == i,

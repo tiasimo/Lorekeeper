@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../services/anime_store.dart';
@@ -146,5 +148,128 @@ class BluRayDisc extends StatelessWidget {
         ]),
       ),
     );
+  }
+}
+
+/// Tag dell'animazione che porta la custodia dallo scaffale alla scheda.
+String caseHeroTag(SavedAnime a) => 'anime-case-${a.key}';
+
+/// La custodia che si apre: arriva chiusa dallo scaffale, la copertina gira sul
+/// dorso centrale e scopre il libretto (a sinistra) e il disco (a destra), che gira.
+class OpeningCase extends StatefulWidget {
+  final SavedAnime anime;
+  const OpeningCase({super.key, required this.anime});
+  @override
+  State<OpeningCase> createState() => _OpeningCaseState();
+}
+
+class _OpeningCaseState extends State<OpeningCase> with TickerProviderStateMixin {
+  late final AnimationController _open = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100));
+  late final AnimationController _spin = AnimationController(vsync: this, duration: const Duration(seconds: 9));
+
+  @override
+  void initState() {
+    super.initState();
+    // aspetto che la custodia arrivi dallo scaffale, poi la apro
+    Future.delayed(const Duration(milliseconds: 380), () {
+      if (!mounted) return;
+      _open.forward();
+      _spin.repeat();
+    });
+  }
+
+  @override
+  void dispose() {
+    _open.dispose();
+    _spin.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final a = widget.anime;
+    final frame = a.caseStyle == '4K' ? const Color(0xFF141416) : const Color(0xFF0F3E8C);
+    return LayoutBuilder(builder: (context, c) {
+      final half = (c.maxWidth - 10) / 2;
+      final h = half * 1.28;
+      return SizedBox(
+        height: h + 10,
+        child: AnimatedBuilder(
+          animation: Listenable.merge([_open, _spin]),
+          builder: (context, _) {
+            final t = Curves.easeInOutCubic.transform(_open.value);
+            final angle = -math.pi * t;
+            final showBack = t > 0.5;
+            // il fondo della custodia (libretto e vassoio del disco) compare mentre si apre
+            final booklet = Container(
+              width: half,
+              height: h,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: const Color(0xFFF7F1E4), borderRadius: BorderRadius.circular(5)),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('LIBRETTO', style: LK.label(8, spacing: 1.4)),
+                const SizedBox(height: 4),
+                Text(a.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: LK.display(15, color: const Color(0xFF2A2420)).copyWith(height: 1.15)),
+                const SizedBox(height: 6),
+                Expanded(child: Text(a.description ?? 'Trama non disponibile.', overflow: TextOverflow.fade, style: LK.body(11, color: const Color(0xFF5E534B), height: 1.4))),
+                if (a.genres.isNotEmpty) Text(a.genres.take(3).join(' · '), maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.label(8.5, color: const Color(0xFF6B5F57), spacing: 0.4)),
+              ]),
+            );
+            final tray = Container(
+              width: half,
+              height: h,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(5),
+                gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF1A4F9E), Color(0xFF0B2F6A)]),
+              ),
+              child: Stack(alignment: Alignment.center, children: [
+                Transform.translate(
+                  // il disco si solleva un poco quando la custodia è aperta
+                  offset: Offset(0, -6 * t),
+                  child: Transform.rotate(
+                    angle: _spin.value * 2 * math.pi * (0.15 + 0.85 * (1 - t)) + t * math.pi * 0.6,
+                    child: BluRayDisc(anime: a, size: math.min(half * 0.84, h * 0.7)),
+                  ),
+                ),
+                Positioned(bottom: 8, child: Text('${a.total} EPISODI', style: LK.label(7.5, color: Colors.white70, spacing: 1.2))),
+              ]),
+            );
+            return Stack(clipBehavior: Clip.none, children: [
+              // guscio esterno: si allarga da metà a intero
+              Positioned(
+                left: (half + 5) * (1 - t),
+                top: 0,
+                width: (half + 10) + (half) * t,
+                height: h + 10,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: frame,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: [BoxShadow(color: const Color(0x47000000), blurRadius: 18, offset: Offset(0, 10 * (0.4 + 0.6 * t)))],
+                  ),
+                ),
+              ),
+              // vassoio con il disco (a destra, sotto la copertina)
+              Positioned(left: half + 5, top: 5, child: tray),
+              // la copertina che ruota sul dorso centrale
+              Positioned(
+                left: half + 5,
+                top: 5,
+                child: Transform(
+                  alignment: Alignment.centerLeft,
+                  transform: Matrix4.identity()
+                    ..setEntry(3, 2, 0.0012)
+                    ..rotateY(angle),
+                  child: showBack
+                      // dentro la copertina c'è il libretto (girato, così si legge dritto)
+                      ? Transform(alignment: Alignment.center, transform: Matrix4.rotationY(math.pi), child: booklet)
+                      : Hero(tag: caseHeroTag(a), child: BluRayCase(anime: a, width: half)),
+                ),
+              ),
+            ]);
+          },
+        ),
+      );
+    });
   }
 }

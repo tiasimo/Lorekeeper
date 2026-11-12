@@ -262,11 +262,14 @@ class _Videoteca extends StatelessWidget {
                     child: GestureDetector(
                       onTap: () => onOpen(row[i]),
                       onLongPress: () => _options(context, row[i]),
-                      child: BluRayCase(
+                      child: Hero(
+                        tag: caseHeroTag(row[i]),
+                        child: BluRayCase(
                         anime: row[i],
                         width: caseW,
                         tilt: row.length > 1 ? (i == 0 ? 0.14 : (i == row.length - 1 ? -0.14 : 0)) : 0,
                         badge: row[i].newEpisodes > 0 ? row[i].newEpisodes : (row[i].shelf == 0 && row[i].total > 0 ? row[i].unwatched : null),
+                      ),
                       ),
                     ),
                   ),
