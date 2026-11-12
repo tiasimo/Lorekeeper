@@ -45,6 +45,7 @@ class MangaPrefs {
   bool keepScreenOn = true;
   bool longPressActions = true;
   bool alwaysTransition = true;
+  bool continuous = true; // passa al capitolo successivo senza fermarsi
   bool animatePages = true;
   bool flashOnPage = false;
   bool doublePage = true; // due pagine affiancate in orizzontale
@@ -80,6 +81,7 @@ class MangaPrefs {
         'awake': keepScreenOn,
         'long': longPressActions,
         'trans': alwaysTransition,
+        'cont': continuous,
         'anim': animatePages,
         'flash': flashOnPage,
         'dp': doublePage,
@@ -120,6 +122,7 @@ class MangaPrefs {
     p.keepScreenOn = v('awake', true);
     p.longPressActions = v('long', true);
     p.alwaysTransition = v('trans', true);
+    p.continuous = v('cont', true);
     p.animatePages = v('anim', true);
     p.flashOnPage = v('flash', false);
     p.doublePage = v('dp', true);

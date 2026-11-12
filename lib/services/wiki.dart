@@ -193,6 +193,8 @@ class Wiki {
   final Map<String, String> summaries = {}; // "idLibro:capitolo" → riassunto
   final Set<String> pendingRewrite = {}; // voci con novità da integrare nella scheda completa
   final List<WikiEvent> events = [];
+  /// Impostazioni della mappa del mondo (es. dove sta il mare).
+  final Map<String, dynamic> mapInfo = {};
 
   Wiki(this.key, this.title);
 
@@ -342,6 +344,7 @@ class Wiki {
         'summaries': summaries,
         'pending': pendingRewrite.toList(),
         'events': events.map((e) => e.toJson()).toList(),
+        'map': mapInfo,
       };
 
   factory Wiki.fromJson(Map j) {
@@ -357,6 +360,7 @@ class Wiki {
     w.summaries.addAll(Map<String, String>.from((j['summaries'] as Map?) ?? {}));
     w.pendingRewrite.addAll((j['pending'] as List? ?? []).cast<String>());
     w.events.addAll((j['events'] as List? ?? []).map((e) => WikiEvent.fromJson(e as Map)));
+    w.mapInfo.addAll(Map<String, dynamic>.from((j['map'] as Map?) ?? const {}));
     return w;
   }
 }
@@ -692,6 +696,57 @@ ${plot.isEmpty ? '(non disponibile)' : plot}''';
       ..removeWhere((r) => r.pos == pos)
       ..addAll(grs);
     w.linkSnapshots.add(pos);
+  }
+
+  /// Luoghi già incontrati che non hanno ancora un posto sulla mappa.
+  List<WikiEntry> unmappedPlaces(Wiki w, int limit) =>
+      w.entries.values.where((e) => e.type == 'luogo' && e.visibleAt(limit) && e.extraAt('map', 1 << 30) == null).toList();
+
+  /// Chiede a Gemini dove mettere sulla mappa i luoghi nuovi, accanto a quelli già disegnati.
+  Future<void> layoutMap(Book b) async {
+    final w = await forBook(b);
+    final limit = limitFor(b);
+    final todo = unmappedPlaces(w, limit);
+    if (todo.isEmpty) return;
+    final placed = w.entries.values.where((e) => e.type == 'luogo' && e.extraAt('map', 1 << 30) != null).toList();
+    String desc(WikiEntry e) {
+      final d = e.descriptionAt(limit);
+      final t = d.isNotEmpty ? d : e.notesAt(limit).map((n) => n.text).join(' ');
+      final inside = e.extraAt('inside', limit);
+      return '${e.name}${inside != null ? ' (dentro: $inside)' : ''}: ${t.length > 350 ? t.substring(0, 350) : t}';
+    }
+
+    final prompt = '''
+Stai disegnando la mappa del mondo del libro «${b.title}»${b.series != null ? ' (saga «${b.series}»)' : ''}. Devi decidere la posizione dei luoghi su un foglio quadrato con coordinate x e y da 0 a 1000 (x verso est, y verso sud). Usa SOLO le informazioni date: distanze, direzioni (nord, sud...), luoghi contenuti in altri, viaggi tra luoghi. Se un luogo è dentro un altro (una stanza in un castello, un quartiere in una città), mettilo molto vicino (entro 40). Luoghi senza indizi vanno vicino a quelli con cui sono collegati nella storia. Tieni i luoghi tra 80 e 920 e lontani almeno 30 tra loro se distinti.
+${placed.isEmpty ? '' : '\nLUOGHI GIÀ SULLA MAPPA (non spostarli):\n${placed.map((e) {
+            final m = e.extraAt('map', 1 << 30) as Map;
+            return '- ${e.name}: x=${m['x']}, y=${m['y']}';
+          }).join('\n')}\n'}
+LUOGHI DA POSIZIONARE:
+${todo.map((e) => '- ${desc(e)}').join('\n')}
+
+Rispondi solo con JSON: {"sea": una tra "nessuno", "nord", "sud", "est", "ovest", "intorno" (dove si trova il mare, se se ne parla), "places": [{"name": "nome esatto", "x": 0, "y": 0, "roads": ["nomi dei luoghi collegati da strade o viaggi"]}]}''';
+    final raw = await Gemini.ask(prompt, maxTokens: 2500, temperature: 0.2, json: true);
+    final data = _parseJson(raw);
+    if (data == null) throw GeminiError('Gemini non ha risposto in modo leggibile, riprova.');
+    final sea = data['sea'];
+    if (sea is String && (placed.isEmpty || !w.mapInfo.containsKey('sea'))) w.mapInfo['sea'] = sea.toLowerCase();
+    for (final it in (data['places'] as List? ?? const [])) {
+      if (it is! Map) continue;
+      final e = w.entries[Wiki.slug('${it['name']}')] ?? w.find('${it['name']}');
+      if (e == null || e.type != 'luogo') continue;
+      final x = (it['x'] as num?)?.toDouble(), y = (it['y'] as num?)?.toDouble();
+      if (x == null || y == null) continue;
+      final roads = <String>[
+        for (final r in ((it['roads'] as List?) ?? const []).whereType<String>())
+          if ((w.entries[Wiki.slug(r)] ?? w.find(r)) case final t? when t.type == 'luogo' && t.id != e.id) t.id
+      ];
+      // la posizione si "scopre" quando il luogo compare nel libro
+      final first = e.firstPos;
+      e.extra['map'] = {'p': first < 0 ? 0 : first, 'v': {'x': x.clamp(40, 960), 'y': y.clamp(40, 960), 'roads': roads}};
+    }
+    await save(w);
+    notifyListeners();
   }
 
   /// Risponde a una domanda sul libro usando solo ciò che il lettore ha già letto.

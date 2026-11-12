@@ -4,6 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../models/book.dart';
+import '../services/annotations.dart';
+
+int _bookmarks(String id) {
+  try {
+    return Annotations.I.of(id).bookmarks.length;
+  } catch (_) {
+    return 0;
+  }
+}
 
 class SpineView extends StatelessWidget {
   final String title;
@@ -18,6 +27,7 @@ class SpineView extends StatelessWidget {
   final String? author;
   final double wear; // 0 – 1: usura dei libri più letti
   final int seed;
+  final int ribbons; // segnalibri: nastrini che spuntano dall'alto
 
   const SpineView({
     super.key,
@@ -33,9 +43,10 @@ class SpineView extends StatelessWidget {
     this.author,
     this.wear = 0,
     this.seed = 0,
+    this.ribbons = 0,
   });
 
-  factory SpineView.of(Book b, {double baseHeight = 200}) {
+  factory SpineView.of(Book b, {double baseHeight = 200, int? ribbons}) {
     String? vol;
     if (b.seriesIndex != null) {
       final v = b.seriesIndex!;
@@ -55,6 +66,7 @@ class SpineView extends StatelessWidget {
       author: author,
       wear: (b.progress * 0.7).clamp(0.0, 0.6),
       seed: b.id.hashCode,
+      ribbons: ribbons ?? _bookmarks(b.id),
     );
   }
 
@@ -140,7 +152,7 @@ class SpineView extends StatelessWidget {
           child: child,
         );
 
-    return Container(
+    final spine = Container(
       width: w,
       height: h,
       decoration: BoxDecoration(
@@ -223,6 +235,25 @@ class SpineView extends StatelessWidget {
         ],
       ),
     );
+    if (ribbons <= 0) return spine;
+    const colors = [Color(0xFFB0303A), Color(0xFFD4A64A), Color(0xFF2F7A5B), Color(0xFF34548A), Color(0xFF7A3D8C)];
+    final n = math.min(ribbons, 3);
+    return Stack(clipBehavior: Clip.none, children: [
+      Positioned(
+        top: -11,
+        left: 0,
+        right: 0,
+        height: 14,
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          for (var i = 0; i < n; i++)
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: w * 0.04),
+              child: CustomPaint(size: Size(w * 0.16, 14), painter: _RibbonPainter(colors[(seed.abs() + i) % colors.length], i.isOdd)),
+            ),
+        ]),
+      ),
+      spine,
+    ]);
   }
 }
 
@@ -431,4 +462,36 @@ class _GrainPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_GrainPainter old) => old.wood != wood;
+}
+
+/// Un nastrino segnalibro che spunta dalle pagine.
+class _RibbonPainter extends CustomPainter {
+  final Color color;
+  final bool flip;
+  _RibbonPainter(this.color, this.flip);
+
+  @override
+  void paint(Canvas c, Size s) {
+    final w = s.width, h = s.height;
+    final path = Path()
+      ..moveTo(0, h)
+      ..lineTo(0, 2)
+      ..lineTo(w / 2, 5)
+      ..lineTo(w, 0)
+      ..lineTo(w, h)
+      ..close();
+    c.save();
+    if (flip) {
+      c.translate(w, 0);
+      c.scale(-1, 1);
+    }
+    c.drawPath(path, Paint()..color = color);
+    c.drawLine(Offset(w * 0.3, 4), Offset(w * 0.3, h), Paint()
+      ..color = Colors.white.withValues(alpha: 0.22)
+      ..strokeWidth = 0.8);
+    c.restore();
+  }
+
+  @override
+  bool shouldRepaint(_RibbonPainter o) => o.color != color;
 }

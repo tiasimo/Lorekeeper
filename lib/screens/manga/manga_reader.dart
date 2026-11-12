@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../../services/ambience.dart';
 import '../../services/home_widget_sync.dart';
 import '../../services/library_store.dart';
 import '../../services/manga_downloads.dart';
@@ -58,6 +59,10 @@ class _MangaReaderState extends State<MangaReader> {
   int _run = 0;
   bool _flash = false;
   bool _double = false; // due pagine affiancate
+  // capitolo successivo caricato in anticipo (lettura continua)
+  String? _preUrl;
+  List<PageUrl>? _prePages;
+  bool _autoNextDone = false;
   Timer? _clock;
 
   int get _mode => _seriesMode == 0 ? _p.defaultMode : _seriesMode;
@@ -82,6 +87,7 @@ class _MangaReaderState extends State<MangaReader> {
   void initState() {
     super.initState();
     _ch = widget.chapter;
+    Ambience.I.start();
     _scroll.addListener(_onScroll);
     // tempo di lettura dei manga per le statistiche
     _clock = Timer.periodic(const Duration(seconds: 30), (_) {
@@ -100,6 +106,7 @@ class _MangaReaderState extends State<MangaReader> {
 
   @override
   void dispose() {
+    Ambience.I.stop();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     WakelockPlus.disable();
@@ -132,8 +139,56 @@ class _MangaReaderState extends State<MangaReader> {
 
   // ---------------- capitoli e pagine ----------------
 
+  /// Carica in anticipo l'elenco delle pagine del capitolo successivo e le prime immagini.
+  void _preloadNext() {
+    final n = _next;
+    if (!_p.continuous || n == null || _preUrl == n.url) return;
+    _preUrl = n.url;
+    _prePages = null;
+    () async {
+      try {
+        final pages = MangaDownloads.I.localPages(m, n) ?? await widget.source.methods.getPageList(n.toEpisode());
+        if (_preUrl != n.url) return;
+        _prePages = pages;
+        for (final pg in pages.take(3)) {
+          MangaImages.get(pg.url, headers: pg.headers, sourceId: m.sourceId, managerId: m.managerId).catchError((_) => null);
+        }
+      } catch (_) {
+        if (_preUrl == n.url) _preUrl = null;
+      }
+    }();
+  }
+
   Future<void> _open(MChapter c, {int page = 0, bool fromEnd = false}) async {
     final my = ++_run;
+    _autoNextDone = false;
+    final ready = c.url == _preUrl ? _prePages : null;
+    if (ready != null) {
+      // già pronto: niente attesa, si continua a leggere
+      _preUrl = null;
+      _prePages = null;
+      _ch = c;
+      _pages = ready;
+      _splitDone.clear();
+      _keys.clear();
+      _items = _buildItems();
+      final start = fromEnd ? (_items.isEmpty ? 0 : _items.length - 1) : page.clamp(0, _items.isEmpty ? 0 : _items.length - 1);
+      _pc?.dispose();
+      _pc = PageController(initialPage: start);
+      setState(() {
+        _pos = start;
+        _loading = false;
+        _error = null;
+      });
+      if (_webtoon) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_scroll.hasClients) _scroll.jumpTo(0);
+        });
+      }
+      _prefetch(start);
+      store.setProgress(m, c, start);
+      return;
+    }
     setState(() {
       _ch = c;
       _loading = true;
@@ -204,9 +259,10 @@ class _MangaReaderState extends State<MangaReader> {
     setState(() => _pos = i);
     if (wasLast) {
       store.markRead(m, _ch);
-      if (!_p.alwaysTransition && _next != null) _open(_next!);
+      if ((_p.continuous || !_p.alwaysTransition) && _next != null) _open(_next!);
       return;
     }
+    if (i >= _items.length - 4) _preloadNext();
     _prefetch(_page);
     store.setProgress(m, _ch, i);
     if (i >= _items.length - 1) store.markRead(m, _ch);
@@ -238,7 +294,22 @@ class _MangaReaderState extends State<MangaReader> {
       _prefetch(cur);
       store.setProgress(m, _ch, cur);
     }
-    if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 20) store.markRead(m, _ch);
+    if (cur >= _items.length - 4) _preloadNext();
+    if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 20) {
+      store.markRead(m, _ch);
+      // in verticale: arrivato in fondo si passa da soli al successivo
+      final n = _next;
+      if (_p.continuous && n != null && !_autoNextDone) {
+        _autoNextDone = true;
+        Future.delayed(const Duration(milliseconds: 450), () {
+          if (mounted && _ch.url != n.url && _scroll.hasClients && _scroll.position.pixels >= _scroll.position.maxScrollExtent - 60) {
+            _open(n);
+          } else {
+            _autoNextDone = false;
+          }
+        });
+      }
+    }
   }
 
   void _jumpVertical(int i) {

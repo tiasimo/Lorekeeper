@@ -24,6 +24,8 @@ import '../services/manga_store.dart';
 import 'stats_screen.dart';
 import '../widgets/shelf_backdrop.dart';
 import '../widgets/lantern.dart';
+import '../widgets/home_window.dart';
+import '../widgets/shelf_cat.dart';
 import '../services/drive_sync.dart';
 import '../widgets/decor_objects.dart';
 import '../widgets/seasonal.dart';
@@ -338,6 +340,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           ]),
                         ),
                       ),
+                      const Padding(padding: EdgeInsets.only(right: 10), child: HomeWindow()),
                       const Padding(padding: EdgeInsets.only(right: 4), child: HomeLantern()),
                       IconButton(
                         tooltip: 'Impostazioni',
@@ -645,6 +648,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         Positioned(left: 0, top: 6, bottom: -5, child: ShelfSide(wood: wood)),
         Positioned(right: 0, top: 6, bottom: -5, child: ShelfSide(wood: wood, right: true)),
         if (season != null) Positioned.fill(child: SeasonalDecor(season: season, boardTop: 240, seed: key.hashCode, sagaBirthday: sagaBirthday)),
+        if (store.app.cat) Positioned.fill(child: ShelfCat(rowKey: key, boardTop: 240)),
       ]),
     );
   }
@@ -658,9 +662,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
       return b != 'Carta' && shelfBackdrops.contains(b);
     }
     if (app.shelfSort != 'Manuale' || app.shelfFilter != 'Tutti') {
+      CatBrain.I.setRows(const ['_flat']);
       return ShelfWall(kind: bg, child: _row('_flat', [for (final e in _visible) if (e.startsWith('b:')) e], addButton: true));
     }
     final groups = store.shelfGroups();
+    CatBrain.I.setRows(groups.isEmpty ? const [LibraryStore.singleShelf] : [for (final g in groups) g.$1]);
     if (groups.isEmpty) return ShelfWall(kind: bg, child: _row(LibraryStore.singleShelf, const [], addButton: true));
     return Column(children: [
       for (var i = 0; i < groups.length; i++)

@@ -433,6 +433,16 @@ class MangaStore extends ChangeNotifier {
       await sp.setBool('manga.randomSpine', true);
       save();
     }
+    MangaImages.protectedUrls = () => {
+          for (final m in _all.values)
+            if (m.inLibrary && (m.cover ?? '').isNotEmpty) m.cover!,
+        };
+    // le copertine della libreria pronte su disco (in coda, dopo il resto)
+    Future.delayed(const Duration(seconds: 4), () {
+      for (final m in library) {
+        if ((m.cover ?? '').isNotEmpty) MangaImages.prefetch([m.cover!], sourceId: m.sourceId, managerId: m.managerId);
+      }
+    });
     notifyListeners();
   }
 
@@ -559,7 +569,8 @@ class MangaStore extends ChangeNotifier {
   Future<SavedManga> refresh(Source s, SavedManga m) async {
     final d = await s.methods.getDetail(m.toMedia());
     m.title = (d.title?.isNotEmpty ?? false) ? d.title! : m.title;
-    m.cover = (d.cover?.isNotEmpty ?? false) ? d.cover : m.cover;
+    // la copertina di AniList (server veloce, misura giusta) ha la precedenza
+    if ((d.cover?.isNotEmpty ?? false) && !(m.cover ?? '').contains('anilist.co')) m.cover = d.cover;
     m.author = d.author ?? m.author;
     m.description = d.description ?? m.description;
     if (d.genre != null && d.genre!.isNotEmpty) m.genres = d.genre!;

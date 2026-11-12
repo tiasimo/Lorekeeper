@@ -12,6 +12,7 @@ import '../theme.dart';
 import '../widgets/common.dart';
 import '../widgets/wiki_styles.dart';
 import 'book_extras.dart';
+import 'world_map.dart';
 
 const _types = ['personaggio', 'luogo', 'termine'];
 const _typeLabels = ['Personaggi', 'Luoghi', 'Termini'];
@@ -386,6 +387,13 @@ class _WikiViewState extends State<WikiView> {
               ),
             ),
           ]),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(backgroundColor: LK.card, side: BorderSide(color: LK.border)),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => WorldMapScreen(book: b))),
+            icon: Icon(Icons.map_outlined, color: LK.accent, size: 18),
+            label: Text('Mappa del mondo', style: LK.body(13)),
+          ),
           const SizedBox(height: 12),
           if (list.isEmpty)
             Padding(

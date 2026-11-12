@@ -189,6 +189,7 @@ class _SheetState extends State<_Sheet> {
         _check('Mostra il contenuto nell\'area della fotocamera', p.drawInCutout, (v) => _set(() => p.drawInCutout = v)),
         _check('Mantieni lo schermo acceso', p.keepScreenOn, (v) => _set(() => p.keepScreenOn = v)),
         _check('Mostra azioni con un tocco prolungato', p.longPressActions, (v) => _set(() => p.longPressActions = v)),
+        _check('Lettura continua: il capitolo successivo si carica in anticipo e parte da solo', p.continuous, (v) => _set(() => p.continuous = v)),
         _check('Mostra sempre la transizione tra capitoli', p.alwaysTransition, (v) => _set(() => p.alwaysTransition = v)),
         _check('Anima le transizioni di pagina', p.animatePages, (v) => _set(() => p.animatePages = v)),
         _check('Lampeggia al cambio pagina', p.flashOnPage, (v) => _set(() => p.flashOnPage = v)),

@@ -86,6 +86,12 @@ class AppPrefs {
   int section = 0; // 0 novel, 1 manga (ultima sezione aperta)
   String? birthday; // "MM-GG", per la decorazione del compleanno
   String? installedOn; // "AAAA-MM-GG", per l'anniversario dell'app
+  bool ambient = false; // suoni d'ambiente durante la lettura
+  String ambientSound = 'Automatico';
+  double ambientVolume = 0.5;
+  String? weatherCity; // città per il meteo della finestra
+  double? weatherLat, weatherLon;
+  bool cat = true; // il gatto della libreria
 
   Map<String, dynamic> toJson() => {
         'goalMinutes': goalMinutes, 'reminder': reminder, 'reminderHour': reminderHour, 'reminderMinute': reminderMinute,
@@ -98,6 +104,13 @@ class AppPrefs {
         'section': section,
         'birthday': birthday,
         'installedOn': installedOn,
+        'ambient': ambient,
+        'ambientSound': ambientSound,
+        'ambientVolume': ambientVolume,
+        'weatherCity': weatherCity,
+        'weatherLat': weatherLat,
+        'weatherLon': weatherLon,
+        'cat': cat,
       };
 
   void fromJson(Map<String, dynamic> j) {
@@ -118,6 +131,13 @@ class AppPrefs {
     section = v('section', section);
     birthday = j['birthday'] as String?;
     installedOn = j['installedOn'] as String?;
+    ambient = v('ambient', ambient);
+    ambientSound = v('ambientSound', ambientSound);
+    ambientVolume = (j['ambientVolume'] as num?)?.toDouble() ?? ambientVolume;
+    weatherCity = j['weatherCity'] as String?;
+    weatherLat = (j['weatherLat'] as num?)?.toDouble();
+    weatherLon = (j['weatherLon'] as num?)?.toDouble();
+    cat = v('cat', cat);
     final sl = j['shelfLooks'];
     if (sl is Map) {
       shelfLooks = {for (final e in sl.entries) if (e.value is Map) e.key as String: Map<String, dynamic>.from(e.value as Map)};

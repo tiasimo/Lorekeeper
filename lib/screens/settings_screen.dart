@@ -4,6 +4,8 @@ import 'package:share_plus/share_plus.dart';
 
 import '../services/backup.dart';
 import '../services/drive_sync.dart';
+import '../services/weather.dart';
+import '../widgets/ambience_sheet.dart';
 import '../services/library_store.dart';
 import '../services/reminders.dart';
 import '../services/secrets.dart';
@@ -44,6 +46,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _name.dispose();
     _key.dispose();
     super.dispose();
+  }
+
+  LibraryStore get store => LibraryStore.I;
+
+  Future<void> _pickCity() async {
+    final ctl = TextEditingController();
+    List<(String, double, double)> res = [];
+    var searching = false;
+    final picked = await showModalBottomSheet<(String, double, double)>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: LK.paper,
+      showDragHandle: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, set) => Padding(
+          padding: EdgeInsets.fromLTRB(20, 0, 20, 20 + MediaQuery.of(ctx).viewInsets.bottom),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('La tua città', style: LK.display(20)),
+            const SizedBox(height: 10),
+            TextField(
+              controller: ctl,
+              autofocus: true,
+              textInputAction: TextInputAction.search,
+              decoration: _dec('Es. Roma'),
+              onSubmitted: (q) async {
+                if (q.trim().isEmpty) return;
+                set(() => searching = true);
+                try {
+                  res = await Weather.search(q.trim());
+                } catch (_) {
+                  res = [];
+                }
+                set(() => searching = false);
+              },
+            ),
+            const SizedBox(height: 8),
+            if (searching) LinearProgressIndicator(color: LK.accent),
+            for (final r in res)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.place_outlined, color: LK.accent),
+                title: Text(r.$1, style: LK.body(14.5)),
+                onTap: () => Navigator.pop(ctx, r),
+              ),
+            Text('Il meteo arriva da Open-Meteo: l\'app invia solo le coordinate della città.', style: LK.body(12, color: LK.muted, style: FontStyle.italic)),
+          ]),
+        ),
+      ),
+    );
+    if (picked == null) return;
+    store.app
+      ..weatherCity = picked.$1
+      ..weatherLat = picked.$2
+      ..weatherLon = picked.$3;
+    store.saveAppPrefs();
+    await Weather.I.refresh(force: true);
+    if (mounted) setState(() {});
   }
 
   InputDecoration _dec(String hint, {Widget? suffix}) => InputDecoration(
@@ -366,6 +425,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(width: 6),
               Text(_hasKey ? 'Chiave presente' : 'Nessuna chiave', style: LK.body(13, color: LK.muted)),
             ]),
+            const SizedBox(height: 30),
+            const SectionLabel('Atmosfera'),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.wb_cloudy_outlined, color: LK.accent),
+              title: Text('Meteo della finestra', style: LK.body(15)),
+              subtitle: Text(store.app.weatherCity ?? 'Nessuna città: il cielo segue solo l\'ora del giorno', style: LK.body(12.5, color: LK.muted)),
+              trailing: store.app.weatherCity == null
+                  ? null
+                  : IconButton(
+                      icon: Icon(Icons.close, color: LK.muted),
+                      onPressed: () {
+                        store.app
+                          ..weatherCity = null
+                          ..weatherLat = null
+                          ..weatherLon = null;
+                        store.saveAppPrefs();
+                        Weather.I.refresh(force: true);
+                        setState(() {});
+                      },
+                    ),
+              onTap: _pickCity,
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.music_note_outlined, color: LK.accent),
+              title: Text('Suoni d\'ambiente', style: LK.body(15)),
+              subtitle: Text(store.app.ambient ? 'Attivi · ${store.app.ambientSound}' : 'Disattivati', style: LK.body(12.5, color: LK.muted)),
+              onTap: () async {
+                await showAmbienceSheet(context);
+                if (mounted) setState(() {});
+              },
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              activeThumbColor: LK.accent,
+              value: store.app.cat,
+              onChanged: (v) {
+                store.app.cat = v;
+                store.saveAppPrefs();
+                setState(() {});
+              },
+              title: Text('Il gatto della libreria', style: LK.body(15)),
+              subtitle: Text('Passeggia tra gli scaffali e ogni tanto si addormenta.', style: LK.body(12.5, color: LK.muted)),
+            ),
             const SizedBox(height: 30),
             const SectionLabel('Sincronizza tra dispositivi'),
             ListenableBuilder(

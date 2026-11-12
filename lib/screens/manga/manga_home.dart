@@ -10,6 +10,7 @@ import '../../widgets/spine.dart';
 import '../../widgets/shelf_backdrop.dart';
 import '../../widgets/seasonal.dart';
 import '../../widgets/decor_objects.dart';
+import '../../widgets/shelf_cat.dart';
 import '../../widgets/shelf_customize.dart';
 import '../../services/library_store.dart';
 import '../spine_editor_screen.dart';
@@ -128,7 +129,7 @@ class _MangaSectionState extends State<MangaSection> {
                                 child: SizedBox(
                                   width: 38,
                                   height: 54,
-                                  child: (r.$1.cover ?? '').isEmpty ? Container(color: LK.line) : MangaImage(r.$1.cover!, sourceId: r.$1.sourceId, managerId: r.$1.managerId),
+                                  child: (r.$1.cover ?? '').isEmpty ? Container(color: LK.line) : MangaImage(r.$1.cover!, sourceId: r.$1.sourceId, managerId: r.$1.managerId, tint: r.$1.coverSpineColor == null ? null : Color(r.$1.coverSpineColor!)),
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -287,7 +288,7 @@ class _LibraryTab extends StatelessWidget {
             child: Row(children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(4),
-                child: SizedBox(width: 54, height: 78, child: (m.cover ?? '').isEmpty ? Container(color: LK.line) : MangaImage(m.cover!, sourceId: m.sourceId, managerId: m.managerId)),
+                child: SizedBox(width: 54, height: 78, child: (m.cover ?? '').isEmpty ? Container(color: LK.line) : MangaImage(m.cover!, sourceId: m.sourceId, managerId: m.managerId, tint: m.coverSpineColor == null ? null : Color(m.coverSpineColor!))),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -358,7 +359,7 @@ class _LibraryTab extends StatelessWidget {
       onTap: () => _open(context, m),
       onLongPress: () => _options(context, m),
       child: Stack(clipBehavior: Clip.none, alignment: Alignment.bottomCenter, children: [
-        Hero(tag: 'book-${b.id}', child: SpineView.of(b, baseHeight: 190)),
+        Hero(tag: 'book-${b.id}', child: SpineView.of(b, baseHeight: 190, ribbons: m.bookmarks.length)),
         if (badge > 0)
           Positioned(
             top: -8,
@@ -460,6 +461,7 @@ class _LibraryTab extends StatelessWidget {
                 Positioned(left: 0, top: 6, bottom: -5, child: ShelfSide(wood: wood)),
                 Positioned(right: 0, top: 6, bottom: -5, child: ShelfSide(wood: wood, right: true)),
                 if (season != null) Positioned.fill(child: SeasonalDecor(season: season, boardTop: 230, seed: row.length + kind)),
+                if (LibraryStore.I.app.cat && identical(row, rows.first)) Positioned.fill(child: ShelfCat(rowKey: key, boardTop: 230)),
               ]),
             ),
         ]);
@@ -536,6 +538,11 @@ class _LibraryTab extends StatelessWidget {
                       ),
                   ]),
                 ),
+              if ((() {
+                CatBrain.I.setRows([for (var k = 0; k < 3; k++) if (groups[k].isNotEmpty) 'manga:$k']);
+                return false;
+              })())
+                const SizedBox.shrink(),
               for (var k = 0; k < 3; k++)
                 if (groups[k].isNotEmpty) _shelf(context, k, groups[k]),
               if (groups.every((g) => g.isEmpty)) _message('Nessun manga in questa categoria.'),
@@ -656,6 +663,8 @@ class _ExploreTabState extends State<_ExploreTab> {
         _hasNext = r.hasNextPage;
         _page++;
       });
+      // le copertine sotto lo schermo arrivano mentre guardi quelle in alto
+      MangaImages.prefetch(r.list.map((x) => x.cover ?? ''), sourceId: s.id, managerId: s.managerId ?? s.extensionType);
     } catch (e) {
       if (my == _run && mounted) setState(() => _error = '$e');
     } finally {
@@ -1124,7 +1133,7 @@ class _EventRow extends StatelessWidget {
             child: SizedBox(
               width: 42,
               height: 60,
-              child: m == null || (m.cover ?? '').isEmpty ? Container(color: LK.line) : MangaImage(m.cover!, sourceId: m.sourceId, managerId: m.managerId),
+              child: m == null || (m.cover ?? '').isEmpty ? Container(color: LK.line) : MangaImage(m.cover!, sourceId: m.sourceId, managerId: m.managerId, tint: m.coverSpineColor == null ? null : Color(m.coverSpineColor!)),
             ),
           ),
           const SizedBox(width: 12),

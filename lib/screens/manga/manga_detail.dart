@@ -207,7 +207,7 @@ class _MangaDetailState extends State<MangaDetail> {
                       decoration: BoxDecoration(borderRadius: BorderRadius.circular(6), boxShadow: const [BoxShadow(color: Color(0x44000000), blurRadius: 12, offset: Offset(0, 5))]),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(6),
-                        child: (m.cover ?? '').isEmpty ? Container(color: LK.accentSoft) : MangaImage(m.cover!, sourceId: m.sourceId, managerId: m.managerId),
+                        child: (m.cover ?? '').isEmpty ? Container(color: LK.accentSoft) : MangaImage(m.cover!, sourceId: m.sourceId, managerId: m.managerId, tint: m.coverSpineColor == null ? null : Color(m.coverSpineColor!)),
                       ),
                     )),
                     const SizedBox(width: 16),
