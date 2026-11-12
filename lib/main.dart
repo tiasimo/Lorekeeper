@@ -44,6 +44,8 @@ class _LorekeeperAppState extends State<LorekeeperApp> with WidgetsBindingObserv
   }
 
   bool _wantDark() {
+    // sulla TV, salvo scelta diversa, sempre il tema scuro ("home cinema")
+    if (tvMode && LibraryStore.I.appTheme == 'Sistema') return true;
     switch (LibraryStore.I.appTheme) {
       case 'Notte':
         return true;
@@ -101,7 +103,14 @@ class _LorekeeperAppState extends State<LorekeeperApp> with WidgetsBindingObserv
       navigatorKey: _navKey,
       title: 'Lorekeeper',
       debugShowCheckedModeBanner: false,
-      theme: LK.theme(),
+      theme: tvMode ? LK.tvTheme() : LK.theme(),
+      // sulla TV i testi sono più grandi, perché si guarda da lontano
+      builder: tvMode
+          ? (context, child) => MediaQuery(
+                data: MediaQuery.of(context).copyWith(textScaler: const TextScaler.linear(1.2)),
+                child: child!,
+              )
+          : null,
       home: const SplashScreen(),
     );
   }

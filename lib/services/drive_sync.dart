@@ -9,7 +9,9 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'anime_store.dart';
 import 'backup.dart';
+import 'manga_store.dart';
 import 'library_store.dart';
 
 /// Sincronizzazione tra dispositivi tramite la cartella privata dell'app su Google Drive
@@ -141,6 +143,8 @@ class DriveSync extends ChangeNotifier {
         final f = File(p.join(Directory.systemTemp.path, _dataName));
         await f.writeAsBytes(bytes);
         await Backup.restore(f.path);
+        await AnimeStore.I.reload();
+        await MangaStore.I.reload();
         await prefs.setInt('sync.at', remoteAt);
         await prefs.remove('sync.dirty');
         await _pullBooks();

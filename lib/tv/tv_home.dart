@@ -5,18 +5,22 @@ import 'package:flutter/material.dart';
 
 import '../models/book.dart';
 import '../screens/anime/anime_widgets.dart';
-import '../screens/manga/manga_detail.dart';
 import '../screens/manga/manga_home.dart';
 import '../screens/reader_screen.dart';
-import '../screens/settings_screen.dart';
 import '../services/anilist.dart';
+import '../services/background.dart';
+import '../services/drive_sync.dart';
+import '../services/updater.dart';
 import '../services/anime_store.dart';
 import '../services/library_store.dart';
 import '../services/manga_store.dart';
-import '../theme.dart';
 import '../widgets/manga_image.dart';
 import '../widgets/spine.dart';
+import '../widgets/update_dialog.dart';
 import 'tv_anime_detail.dart';
+import 'tv_manga_detail.dart';
+import 'tv_search.dart';
+import 'tv_settings.dart';
 import 'tv_widgets.dart';
 
 /// La Home della TV: schede in alto (Anime, Manga, Novel, Cerca…) e file di
@@ -42,6 +46,13 @@ class _TvHomeState extends State<TvHome> {
   }
 
   Future<void> _start() async {
+    // aggiornamenti dell'app, sincronizzazione e controllo novità, come sul telefono
+    Future.delayed(const Duration(seconds: 3), () async {
+      final u = await Updater.checkIfDue();
+      if (u != null && mounted) showUpdateDialog(context, u);
+    });
+    DriveSync.I.init();
+    Background.setup();
     await AnimeStore.I.load();
     await MangaStore.I.load();
     await AniList.I.load();
@@ -87,15 +98,9 @@ class _TvHomeState extends State<TvHome> {
                     scale: 1.04,
                     radius: BorderRadius.circular(24),
                     onFocus: (f) {
-                      if (f && i < 5 && _tab != i) setState(() => _tab = i);
+                      if (f && _tab != i) setState(() => _tab = i);
                     },
-                    onSelect: () {
-                      if (i == 5) {
-                        Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
-                      } else {
-                        setState(() => _tab = i);
-                      }
-                    },
+                    onSelect: () => setState(() => _tab = i),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                       decoration: BoxDecoration(color: _tab == i ? TV.ink : Colors.transparent, borderRadius: BorderRadius.circular(24)),
@@ -114,8 +119,9 @@ class _TvHomeState extends State<TvHome> {
                     0 => _anime(),
                     1 => _manga(),
                     2 => _novel(),
-                    3 => _embedded(SourceExploreTab(type: ItemType.anime, onExtensions: () => setState(() => _tab = 4), onOpen: (c, s, d) => _openAnime(AnimeStore.I.entry(s, d)))),
-                    _ => _embedded(const ExtensionsPanel(type: ItemType.anime)),
+                    3 => TvSearch(onFocusInfo: (x) => _focusInfo(x.$1, x.$2)),
+                    4 => _extensions(),
+                    _ => const TvSettings(),
                   },
           ),
           // cosa c'è a fuoco
@@ -136,14 +142,29 @@ class _TvHomeState extends State<TvHome> {
     );
   }
 
-  /// Le schermate pensate per il telefono (Cerca, Estensioni) dentro la TV, su sfondo chiaro.
-  Widget _embedded(Widget child) => Padding(
-        padding: const EdgeInsets.fromLTRB(56, 8, 56, 0),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(18),
-          child: Container(color: LK.paper, child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 900), child: child))),
+  // ---------------- estensioni ----------------
+  bool _extAnime = true;
+
+  Widget _extensions() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(56, 12, 56, 8),
+          child: Row(children: [
+            TvButton(label: 'Anime', primary: _extAnime, onSelect: () => setState(() => _extAnime = true)),
+            const SizedBox(width: 12),
+            TvButton(label: 'Manga', primary: !_extAnime, onSelect: () => setState(() => _extAnime = false)),
+            const SizedBox(width: 20),
+            Expanded(child: Text('Repository e sorgenti installate su questa TV.', style: tvBody(15, color: TV.muted))),
+          ]),
         ),
-      );
+        Expanded(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1000),
+              child: ExtensionsPanel(key: ValueKey(_extAnime), type: _extAnime ? ItemType.anime : ItemType.manga),
+            ),
+          ),
+        ),
+      ]);
 
   // ---------------- anime ----------------
   void _openAnime(SavedAnime a) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => TvAnimeDetail(anime: a)));
@@ -199,7 +220,7 @@ class _TvHomeState extends State<TvHome> {
   }
 
   // ---------------- manga ----------------
-  void _openManga(SavedManga m) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => MangaDetail(manga: m)));
+  void _openManga(SavedManga m) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => TvMangaDetail(manga: m)));
 
   Widget _manga() {
     return ListenableBuilder(
@@ -289,6 +310,8 @@ class _TvHomeState extends State<TvHome> {
               cover: last.coverPath,
               primary: 'Riprendi',
               onPrimary: () => _openBook(last),
+              secondary: 'Ascolta',
+              onSecondary: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ReaderScreen(book: last, listen: true))),
             ),
           if (store.books.isEmpty) _empty('Nessun libro: importali dal telefono e sincronizza con Google Drive.'),
           for (final g in groups)
@@ -333,6 +356,8 @@ class _TvHomeState extends State<TvHome> {
     String? managerId,
     required String primary,
     required VoidCallback onPrimary,
+    String? secondary,
+    VoidCallback? onSecondary,
   }) {
     return SizedBox(
       height: 270,
@@ -367,7 +392,13 @@ class _TvHomeState extends State<TvHome> {
             const SizedBox(height: 6),
             Text(sub, style: tvBody(17)),
             const SizedBox(height: 22),
-            TvButton(label: primary, icon: Icons.play_arrow, primary: true, onSelect: onPrimary),
+            Row(children: [
+              TvButton(label: primary, icon: Icons.play_arrow, primary: true, onSelect: onPrimary),
+              if (secondary != null) ...[
+                const SizedBox(width: 14),
+                TvButton(label: secondary, icon: Icons.headphones, onSelect: onSecondary!),
+              ],
+            ]),
           ]),
         ),
       ]),

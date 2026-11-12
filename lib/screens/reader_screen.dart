@@ -34,7 +34,8 @@ import 'wiki_screens.dart';
 class ReaderScreen extends StatefulWidget {
   final Book book;
   final int? startChapter;
-  const ReaderScreen({super.key, required this.book, this.startChapter});
+  final bool listen; // parte subito la lettura ad alta voce (TV)
+  const ReaderScreen({super.key, required this.book, this.startChapter, this.listen = false});
   @override
   State<ReaderScreen> createState() => _ReaderScreenState();
 }
@@ -145,6 +146,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
       final frac = widget.startChapter == null ? book.lastOffset : 0.0;
       await _loadChapter(start.clamp(0, book.chapters.isEmpty ? 0 : book.chapters.length - 1), frac: frac);
       _measureBook();
+      if (widget.listen) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _startTts();
+        });
+      }
       final prev = _prevRead;
       if (prev != null && DateTime.now().difference(prev).inHours >= 48 && book.lastChapter > 0) {
         _showRecap(auto: true);

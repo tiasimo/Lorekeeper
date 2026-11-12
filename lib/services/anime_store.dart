@@ -184,6 +184,14 @@ class AnimeStore extends ChangeNotifier {
 
   SavedAnime? byKey(String k) => _all[k];
 
+  /// Rilegge tutto da disco (es. dopo una sincronizzazione).
+  Future<void> reload() async {
+    _loaded = false;
+    _all.clear();
+    history.clear();
+    await load();
+  }
+
   Future<void> load() async {
     if (_loaded) return;
     _loaded = true;
@@ -199,9 +207,7 @@ class AnimeStore extends ChangeNotifier {
       if (h != null) history.addAll((jsonDecode(h) as List).map((e) => MangaEvent.fromJson(e as Map)));
     } catch (_) {}
     // le copertine della videoteca non si cancellano mai dalla cache
-    final old = MangaImages.protectedUrls;
-    MangaImages.protectedUrls = () => {
-          ...old(),
+    MangaImages.protectedSources['anime'] = () => {
           for (final a in _all.values)
             if (a.inLibrary && (a.cover ?? '').isNotEmpty) a.cover!,
         };

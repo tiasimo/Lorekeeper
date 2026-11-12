@@ -12,7 +12,7 @@ import 'wiki.dart';
 
 /// Copia di sicurezza di libreria, progressi, wiki, note e statistiche (senza gli EPUB).
 class Backup {
-  static const _prefKeys = ['stats.days', 'stats.chdays', 'stats.mdays', 'stats.mchdays', 'manga.reader', 'manga.categories', 'stats.finished', 'stats.chapters', 'app.prefs', 'reader.prefs', 'speed.cps', 'readerName', 'app.theme'];
+  static const _prefKeys = ['stats.days', 'stats.chdays', 'stats.mdays', 'stats.mchdays', 'manga.reader', 'manga.categories', 'stats.finished', 'stats.chapters', 'app.prefs', 'reader.prefs', 'speed.cps', 'readerName', 'app.theme', 'stats.adays', 'stats.aepdays', 'anime.history', 'anilist.user', 'anilist.name', 'anilist.avatar', 'anilist.client', 'manga.imgBridge'];
 
   /// Crea il file .zip da condividere (Drive, email…).
   static Future<File> export() async {
@@ -23,7 +23,7 @@ class Backup {
       arch.addFile(ArchiveFile(name, bytes.length, bytes));
     }
 
-    for (final n in ['library.json', 'manga.json', 'manga_history.json', 'manga_updates.json']) {
+    for (final n in ['library.json', 'manga.json', 'manga_history.json', 'manga_updates.json', 'anime.json']) {
       final f = File(p.join(root.path, n));
       if (f.existsSync()) addFile(f, n);
     }

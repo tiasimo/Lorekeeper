@@ -52,6 +52,28 @@ class LK {
       listTileTheme: ListTileThemeData(iconColor: ink, textColor: ink),
     );
   }
+
+  /// Tema per la TV: si vede bene cosa è selezionato con il telecomando.
+  static ThemeData tvTheme() {
+    final t = theme();
+    final focus = accent.withValues(alpha: 0.32);
+    WidgetStateProperty<Color?> overlay() => WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.focused) ? focus : null);
+    WidgetStateProperty<BorderSide?> ring() =>
+        WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.focused) ? BorderSide(color: accent, width: 3) : null);
+    return t.copyWith(
+      focusColor: focus,
+      highlightColor: focus,
+      visualDensity: VisualDensity.standard,
+      filledButtonTheme: FilledButtonThemeData(style: ButtonStyle(overlayColor: overlay(), side: ring())),
+      outlinedButtonTheme: OutlinedButtonThemeData(style: ButtonStyle(overlayColor: overlay(), side: ring())),
+      textButtonTheme: TextButtonThemeData(style: ButtonStyle(overlayColor: overlay(), side: ring())),
+      iconButtonTheme: IconButtonThemeData(style: ButtonStyle(overlayColor: overlay(), side: ring())),
+      chipTheme: t.chipTheme.copyWith(side: WidgetStateBorderSide.resolveWith((s) => s.contains(WidgetState.focused) ? BorderSide(color: accent, width: 3) : BorderSide(color: border))),
+      listTileTheme: t.listTileTheme.copyWith(selectedTileColor: focus),
+      switchTheme: SwitchThemeData(overlayColor: overlay()),
+      inputDecorationTheme: t.inputDecorationTheme.copyWith(focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: accent, width: 3))),
+    );
+  }
 }
 
 /// Temi di lettura.

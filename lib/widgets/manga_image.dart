@@ -44,7 +44,8 @@ class MangaImages {
   static bool _prefsLoaded = false, _trimmed = false;
 
   /// Url delle copertine dei manga in libreria: non vengono mai cancellate.
-  static Set<String> Function() protectedUrls = () => const {};
+  static final Map<String, Set<String> Function()> protectedSources = {};
+  static Set<String> protectedUrls() => {for (final f in protectedSources.values) ...f()};
 
   static Future<Directory> _cacheDir() async {
     if (_dir != null) return _dir!;

@@ -411,6 +411,16 @@ class MangaStore extends ChangeNotifier {
 
   File get _file => File(p.join(LibraryStore.I.dataDir, 'manga.json'));
 
+  /// Rilegge tutto da disco (es. dopo una sincronizzazione).
+  Future<void> reload() async {
+    _loaded = false;
+    _all.clear();
+    history.clear();
+    updates.clear();
+    await load();
+    notifyListeners();
+  }
+
   Future<void> load() async {
     if (_loaded) return;
     _loaded = true;
@@ -433,7 +443,7 @@ class MangaStore extends ChangeNotifier {
       await sp.setBool('manga.randomSpine', true);
       save();
     }
-    MangaImages.protectedUrls = () => {
+    MangaImages.protectedSources['manga'] = () => {
           for (final m in _all.values)
             if (m.inLibrary && (m.cover ?? '').isNotEmpty) m.cover!,
         };
