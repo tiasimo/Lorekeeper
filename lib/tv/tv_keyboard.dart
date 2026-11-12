@@ -72,17 +72,20 @@ class _TvKeyboardState extends State<_TvKeyboard> {
   Widget build(BuildContext context) {
     return Dialog(
       backgroundColor: const Color(0xFF241D19),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 120, vertical: 30),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Focus(
         onKeyEvent: _onKey,
-        child: Padding(
+        // su Chromecast lo schermo "logico" è piccolo: la tastiera si rimpicciolisce per starci tutta
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Padding(
           padding: const EdgeInsets.all(20),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             if (widget.title.isNotEmpty) Text(widget.title, style: LK.display(20, color: const Color(0xFFF3E7CF))),
             const SizedBox(height: 10),
             Container(
-              width: double.infinity,
+              width: 640,
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
               decoration: BoxDecoration(color: const Color(0x14F3E7CF), borderRadius: BorderRadius.circular(12)),
               child: Text(_text.isEmpty ? ' ' : '$_text▏', maxLines: 2, overflow: TextOverflow.ellipsis, style: LK.body(22, color: const Color(0xFFF3E7CF))),
@@ -105,6 +108,7 @@ class _TvKeyboardState extends State<_TvKeyboard> {
               _key('OK', () => Navigator.pop(context, _text), width: 110, accent: true),
             ]),
           ]),
+          ),
         ),
       ),
     );

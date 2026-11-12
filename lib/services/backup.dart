@@ -94,19 +94,23 @@ class Backup {
 
   /// Solo alcune parti (la TV prende solo anime e AniList, senza libri né manga).
   static const animeFiles = {'anime.json'};
+  static const tvFiles = {'anime.json', 'manga.json', 'manga_history.json', 'manga_updates.json'};
+  static const tvPrefs = {...animePrefs, 'stats.mdays', 'stats.mchdays', 'manga.reader', 'manga.categories'};
   static const animePrefs = {'stats.adays', 'stats.aepdays', 'anime.history', 'anilist.user', 'anilist.name', 'anilist.avatar', 'anilist.client', 'manga.imgBridge'};
 
   /// Ripristina solo [files] e le preferenze [prefKeys] da un backup.
-  static Future<void> restoreParts(String zipPath, {required Set<String> files, required Set<String> prefKeys}) async {
+  static Future<Set<String>> restoreParts(String zipPath, {required Set<String> files, required Set<String> prefKeys}) async {
     final arch = ZipDecoder().decodeBytes(await File(zipPath).readAsBytes());
     final meta = arch.findFile('backup.json');
     if (meta == null) throw Exception('Backup non valido');
     final info = jsonDecode(utf8.decode(meta.content as List<int>)) as Map;
     lastExtra = (info['extra'] as Map?)?.cast<String, dynamic>();
     final root = LibraryStore.I.dataDir;
+    final found = <String>{};
     for (final n in files) {
       final f = arch.findFile(n);
       if (f == null) continue;
+      found.add(n);
       final dest = File(p.join(root, n));
       var bytes = f.content as List<int>;
       if (n == 'anime.json') bytes = mergeAnime(bytes, dest);
@@ -122,6 +126,7 @@ class Backup {
       if (v is double) await prefs.setDouble(k, v);
       if (v is bool) await prefs.setBool(k, v);
     }
+    return found;
   }
 
   /// Prende il backup remoto e ci mette dentro solo le parti locali [files] e [prefKeys]

@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'anime_store.dart';
 import 'anilist.dart';
 import 'backup.dart';
+import 'crash_log.dart';
 import 'manga_store.dart';
 import '../tv/tv_mode.dart';
 import 'library_store.dart';
@@ -141,41 +142,21 @@ class DriveSync extends ChangeNotifier {
       final remote = await _list("name = '$_dataName'");
       final remoteAt = remote.isEmpty ? 0 : int.tryParse('${remote.first['appProperties']?['at']}') ?? 0;
       final remoteNewer = remoteAt > last;
-      // la prima volta su un dispositivo si scarica sempre (mai sovrascrivere l'altro con dati vuoti)
-      final firstTime = last == 0 && remote.isNotEmpty;
-      if (firstTime || (remoteNewer && !forcePush && dirty <= remoteAt)) {
+      if (tvMode) {
+        await _syncTv(prefs, remote, remoteAt, dirty > last || forcePush);
+      } else if (remoteNewer && !forcePush && dirty <= remoteAt) {
         _set('Scarico i dati dall\'altro dispositivo…');
         final bytes = await _get(remote.first['id'] as String);
         final f = File(p.join(Directory.systemTemp.path, _dataName));
         await f.writeAsBytes(bytes);
-        if (tvMode) {
-          // la TV prende solo anime, AniList ed estensioni: niente libri né manga
-          await Backup.restoreParts(f.path, files: Backup.animeFiles, prefKeys: Backup.animePrefs);
-        } else {
-          await Backup.restore(f.path);
-        }
+        await Backup.restore(f.path);
         final extra = Backup.lastExtra;
         if (extra != null) unawaited(_applyExtras(extra));
         await AnimeStore.I.reload();
-        if (!tvMode) await MangaStore.I.reload();
-        if (tvMode) unawaited(_importAniList());
+        await MangaStore.I.reload();
         await prefs.setInt('sync.at', remoteAt);
         await prefs.remove('sync.dirty');
-        if (!tvMode) await _pullBooks();
-      } else if (tvMode && (dirty > last || forcePush)) {
-        // la TV rimanda solo i suoi anime, dentro il backup del telefono
-        if (remote.isEmpty) {
-          error = 'Sincronizza prima dal telefono: la TV aggiunge solo gli anime.';
-        } else {
-          _set('Carico gli anime su Drive…');
-          final now = DateTime.now().millisecondsSinceEpoch;
-          final bytes = await Backup.patchParts(await _get(remote.first['id'] as String), files: Backup.animeFiles, prefKeys: Backup.animePrefs);
-          await _put(_dataName, bytes, id: remote.first['id'] as String, props: {'at': '$now'}, mime: 'application/zip');
-          await prefs.setInt('sync.at', now);
-          await prefs.remove('sync.dirty');
-        }
-      } else if (tvMode) {
-        // niente da fare
+        await _pullBooks();
       } else if (dirty > last || remote.isEmpty || forcePush) {
         _set('Carico i dati su Drive…');
         final now = DateTime.now().millisecondsSinceEpoch;
@@ -185,16 +166,53 @@ class DriveSync extends ChangeNotifier {
         await prefs.remove('sync.dirty');
         await _pushBooks();
       } else {
-        if (!tvMode) await _pullBooks();
+        await _pullBooks();
       }
       lastSync = DateTime.now();
     } catch (e) {
       error = 'Sincronizzazione non riuscita: $e';
+      CrashLog.add(error!);
       if (quiet) debugPrint(error);
     } finally {
       busy = false;
       _set(null);
     }
+  }
+
+  /// Esito dell'ultima sincronizzazione sulla TV (quanti anime e manga sono arrivati).
+  String? tvSummary;
+
+  /// TV: scarica sempre il backup del telefono e lo unisce (anime, manga, AniList, estensioni);
+  /// poi, se sulla TV è cambiato qualcosa, rimanda indietro solo gli anime.
+  Future<void> _syncTv(SharedPreferences prefs, List<Map<String, dynamic>> remote, int remoteAt, bool push) async {
+    if (remote.isEmpty) {
+      error = 'Su Drive non c\'è ancora niente: apri l\'app sul telefono, collega Drive e sincronizza.';
+      return;
+    }
+    _set('Scarico anime e manga dal telefono…');
+    final id = remote.first['id'] as String;
+    final bytes = await _get(id);
+    final f = File(p.join(Directory.systemTemp.path, _dataName));
+    await f.writeAsBytes(bytes);
+    final found = await Backup.restoreParts(f.path, files: Backup.tvFiles, prefKeys: Backup.tvPrefs);
+    final extra = Backup.lastExtra;
+    if (extra != null) unawaited(_applyExtras(extra));
+    await AnimeStore.I.reload();
+    await MangaStore.I.reload();
+    await _importAniList();
+    var at = remoteAt;
+    if (push) {
+      _set('Carico gli anime della TV su Drive…');
+      at = DateTime.now().millisecondsSinceEpoch;
+      final out = await Backup.patchParts(bytes, files: Backup.animeFiles, prefKeys: Backup.animePrefs);
+      await _put(_dataName, out, id: id, props: {'at': '$at'}, mime: 'application/zip');
+    }
+    await prefs.setInt('sync.at', at);
+    await prefs.remove('sync.dirty');
+    final d = DateTime.fromMillisecondsSinceEpoch(remoteAt);
+    tvSummary = '${AnimeStore.I.library.length} anime e ${MangaStore.I.library.length} manga sulla TV. '
+        'Backup del telefono del ${d.day}/${d.month} alle ${d.hour}:${d.minute.toString().padLeft(2, '0')}'
+        '${found.contains('anime.json') ? '' : ' (senza anime: apri l\'app sul telefono così li ricarica)'}.';
   }
 
   /// Sulla TV la videoteca si riempie anche con la lista AniList.
