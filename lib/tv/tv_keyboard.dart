@@ -73,7 +73,11 @@ class _TvKeyboardState extends State<_TvKeyboard> {
       surfaceTintColor: Colors.transparent,
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      // questo Focus serve solo ad ascoltare i tasti: non deve mai prendersi la selezione
+      // (prima il cursore ci finiva sopra e "spariva")
       child: Focus(
+        canRequestFocus: false,
+        skipTraversal: true,
         onKeyEvent: _onKey,
         // su Chromecast lo schermo "logico" è piccolo: la tastiera si rimpicciolisce per starci tutta
         child: FittedBox(
