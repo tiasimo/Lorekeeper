@@ -190,11 +190,11 @@ class _MangaSectionState extends State<MangaSection> {
             : _starting && (_tab == 0 || _tab >= 3)
                 ? Center(child: CircularProgressIndicator(color: LK.accent))
                 : IndexedStack(index: _tab, children: [
-                    if (_starting) const SizedBox.shrink() else _ExploreTab(onExtensions: () => setState(() => _tab = 4)),
+                    if (_starting) const SizedBox.shrink() else SourceExploreTab(onExtensions: () => setState(() => _tab = 4)),
                     _UpdatesTab(onOpen: _openChapter),
                     _HistoryTab(onOpen: _openChapter),
                     if (_starting) const SizedBox.shrink() else const AniListTab(),
-                    if (_starting) const SizedBox.shrink() else const _ExtensionsTab(),
+                    if (_starting) const SizedBox.shrink() else const ExtensionsPanel(),
                   ]),
       ),
     ]);
@@ -566,14 +566,26 @@ class _LibraryTab extends StatelessWidget {
 // ======================================================================
 // Esplora
 // ======================================================================
-class _ExploreTab extends StatefulWidget {
+/// Esplora le sorgenti installate (manga o anime).
+class SourceExploreTab extends StatefulWidget {
   final VoidCallback onExtensions;
-  const _ExploreTab({required this.onExtensions});
+  final ItemType type;
+  final void Function(BuildContext context, Source s, DMedia d)? onOpen;
+  const SourceExploreTab({super.key, required this.onExtensions, this.type = ItemType.manga, this.onOpen});
   @override
-  State<_ExploreTab> createState() => _ExploreTabState();
+  State<SourceExploreTab> createState() => _ExploreTabState();
 }
 
-class _ExploreTabState extends State<_ExploreTab> {
+class _ExploreTabState extends State<SourceExploreTab> {
+  List<Source> _installed() =>
+      (widget.type == ItemType.anime ? MangaStore.I.ext.installedAnimeExtensions : MangaStore.I.ext.installedMangaExtensions).toList();
+
+  void _open(Source s, DMedia d) {
+    if (widget.onOpen != null) return widget.onOpen!(context, s, d);
+    final m = MangaStore.I.entry(s, d);
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => MangaDetail(manga: m)));
+  }
+
   Source? _source;
   int _mode = 0; // 0 popolari, 1 novità, 2 ricerca
   final _q = TextEditingController();
@@ -591,7 +603,7 @@ class _ExploreTabState extends State<_ExploreTab> {
     final q = _q.text.trim();
     if (q.isEmpty) return;
     final my = ++_run;
-    final sources = MangaStore.I.ext.installedMangaExtensions.toList();
+    final sources = _installed();
     setState(() {
       _globalRes.clear();
       _globalPending = sources.length;
@@ -632,10 +644,7 @@ class _ExploreTabState extends State<_ExploreTab> {
                   cover: d.cover,
                   sourceId: s.id,
                   managerId: s.managerId ?? s.extensionType,
-                  onTap: () {
-                    final m = MangaStore.I.entry(s, d);
-                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => MangaDetail(manga: m)));
-                  },
+                  onTap: () => _open(s, d),
                 ),
               );
             },
@@ -684,7 +693,7 @@ class _ExploreTabState extends State<_ExploreTab> {
   @override
   Widget build(BuildContext context) {
     return Obx(() {
-      final sources = MangaStore.I.ext.installedMangaExtensions.toList();
+      final sources = _installed();
       if (sources.isEmpty) {
         return Center(
           child: Padding(
@@ -692,7 +701,7 @@ class _ExploreTabState extends State<_ExploreTab> {
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Text('Nessuna sorgente installata.', style: LK.display(18)),
               const SizedBox(height: 8),
-              Text('Aggiungi un repository e installa almeno una sorgente manga.', textAlign: TextAlign.center, style: LK.body(14, color: LK.muted)),
+              Text('Aggiungi un repository e installa almeno una sorgente ${widget.type == ItemType.anime ? 'anime' : 'manga'}.', textAlign: TextAlign.center, style: LK.body(14, color: LK.muted)),
               const SizedBox(height: 16),
               OutlinedButton(
                 onPressed: widget.onExtensions,
@@ -833,10 +842,7 @@ class _ExploreTabState extends State<_ExploreTab> {
                                 cover: d.cover,
                                 sourceId: s.id,
                                 managerId: s.managerId ?? s.extensionType,
-                                onTap: () {
-                                  final m = MangaStore.I.entry(s, d);
-                                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => MangaDetail(manga: m)));
-                                },
+                                onTap: () => _open(s, d),
                               );
                             },
                           ),
@@ -850,13 +856,16 @@ class _ExploreTabState extends State<_ExploreTab> {
 // ======================================================================
 // Estensioni e repository
 // ======================================================================
-class _ExtensionsTab extends StatefulWidget {
-  const _ExtensionsTab();
+/// Repository ed estensioni (manga o anime).
+class ExtensionsPanel extends StatefulWidget {
+  final ItemType type;
+  const ExtensionsPanel({super.key, this.type = ItemType.manga});
   @override
-  State<_ExtensionsTab> createState() => _ExtensionsTabState();
+  State<ExtensionsPanel> createState() => _ExtensionsTabState();
 }
 
-class _ExtensionsTabState extends State<_ExtensionsTab> {
+class _ExtensionsTabState extends State<ExtensionsPanel> {
+  bool get _anime => widget.type == ItemType.anime;
   String _lang = 'tutte';
   String _filter = '';
   bool _settingUp = false;
@@ -891,7 +900,7 @@ class _ExtensionsTabState extends State<_ExtensionsTab> {
               autofocus: true,
               keyboardType: TextInputType.url,
               decoration: InputDecoration(
-                hintText: manager == 'aniyomi' ? 'https://…/index.min.json' : 'https://…/manga_index.json',
+                hintText: manager == 'aniyomi' ? 'https://…/index.min.json' : (_anime ? 'https://…/anime_index.json' : 'https://…/manga_index.json'),
                 labelText: 'Indirizzo del repository',
               ),
             ),
@@ -913,7 +922,7 @@ class _ExtensionsTabState extends State<_ExtensionsTab> {
       return;
     }
     try {
-      await ext.addRepo(url.text.trim(), ItemType.manga, manager);
+      await ext.addRepo(url.text.trim(), widget.type, manager);
       await ext.refreshExtensions(refreshAvailableSource: true);
       _snack('Repository aggiunto');
     } catch (e) {
@@ -993,16 +1002,16 @@ class _ExtensionsTabState extends State<_ExtensionsTab> {
   @override
   Widget build(BuildContext context) {
     return Obx(() {
-      final installed = ext.installedMangaExtensions.toList();
+      final installed = (_anime ? ext.installedAnimeExtensions : ext.installedMangaExtensions).toList();
       final ids = installed.map((s) => '${s.managerId}|${s.id}').toSet();
-      var available = ext.availableMangaExtensions.where((s) => !ids.contains('${s.managerId}|${s.id}')).toList();
+      var available = (_anime ? ext.availableAnimeExtensions : ext.availableMangaExtensions).where((s) => !ids.contains('${s.managerId}|${s.id}')).toList();
       final langs = {'tutte', ...available.map((s) => (s.lang ?? '').toLowerCase()).where((l) => l.isNotEmpty)}.toList();
       if (_lang != 'tutte') available = available.where((s) => (s.lang ?? '').toLowerCase() == _lang).toList();
       if (_filter.isNotEmpty) available = available.where((s) => (s.name ?? '').toLowerCase().contains(_filter)).toList();
       available.sort((a, b) => (a.name ?? '').toLowerCase().compareTo((b.name ?? '').toLowerCase()));
       final repos = <(String, Repo)>[
         for (final mid in MangaStore.managers.keys)
-          for (final r in ext.getReposRx(ItemType.manga, mid).value) (mid, r),
+          for (final r in ext.getReposRx(widget.type, mid).value) (mid, r),
       ];
       final ctrl = AnymeXRuntimeBridge.controller;
       return RefreshIndicator(
@@ -1016,7 +1025,7 @@ class _ExtensionsTabState extends State<_ExtensionsTab> {
               TextButton.icon(onPressed: _addRepo, icon: Icon(Icons.add, color: LK.accent, size: 18), label: Text('Aggiungi', style: LK.body(13, color: LK.accent))),
             ]),
             if (repos.isEmpty)
-              Text('Nessun repository. Aggiungi l\'indirizzo di un repository di estensioni Mangayomi o Mihon.', style: LK.body(13.5, color: LK.muted, style: FontStyle.italic))
+              Text(_anime ? 'Nessun repository. Aggiungi l\'indirizzo di un repository di estensioni anime (Mangayomi o Aniyomi).' : 'Nessun repository. Aggiungi l\'indirizzo di un repository di estensioni Mangayomi o Mihon.', style: LK.body(13.5, color: LK.muted, style: FontStyle.italic))
             else
               for (final (mid, r) in repos)
                 Container(
@@ -1033,7 +1042,7 @@ class _ExtensionsTabState extends State<_ExtensionsTab> {
                     IconButton(
                       icon: Icon(Icons.close, color: LK.muted, size: 18),
                       onPressed: () async {
-                        await ext.removeRepo(r, ItemType.manga);
+                        await ext.removeRepo(r, widget.type);
                         setState(() {});
                       },
                     ),

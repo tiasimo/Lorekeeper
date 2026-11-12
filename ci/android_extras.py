@@ -23,7 +23,7 @@ with open(f'{RES}/xml/data_extraction_rules.xml', 'w') as f:
 
 m = open(M).read()
 if 'fullBackupContent' not in m:
-    m = m.replace('<application', '<application\n        android:allowBackup="true"\n        android:fullBackupContent="@xml/backup_rules"\n        android:dataExtractionRules="@xml/data_extraction_rules"', 1)
+    m = m.replace('<application', '<application\n        android:allowBackup="true"\n        android:usesCleartextTraffic="true"\n        android:fullBackupContent="@xml/backup_rules"\n        android:dataExtractionRules="@xml/data_extraction_rules"', 1)
 
 # --- Widget
 RECEIVER = """        <receiver android:name=".ContinueWidget" android:exported="true" android:label="Continua a leggere">

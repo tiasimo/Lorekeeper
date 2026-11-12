@@ -20,9 +20,9 @@ class AlMedia {
   final int id;
   final String title;
   final String? english, romaji, cover;
-  final int? chapters, year;
+  final int? chapters, year, episodes, idMal;
   final String? format, status;
-  AlMedia({required this.id, required this.title, this.english, this.romaji, this.cover, this.chapters, this.year, this.format, this.status});
+  AlMedia({required this.id, required this.title, this.english, this.romaji, this.cover, this.chapters, this.year, this.format, this.status, this.episodes, this.idMal});
 
   factory AlMedia.fromJson(Map j) {
     final t = (j['title'] as Map?) ?? const {};
@@ -33,6 +33,8 @@ class AlMedia {
       romaji: t['romaji'] as String?,
       cover: ((j['coverImage'] as Map?)?['large'] ?? (j['coverImage'] as Map?)?['medium']) as String?,
       chapters: j['chapters'] as int?,
+      episodes: j['episodes'] as int?,
+      idMal: j['idMal'] as int?,
       year: (j['startDate'] as Map?)?['year'] as int?,
       format: j['format'] as String?,
       status: j['status'] as String?,
@@ -137,18 +139,18 @@ class AniList extends ChangeNotifier {
     return j['data'] as Map;
   }
 
-  static const _mediaFields = 'id title { userPreferred romaji english } coverImage { large medium } chapters format status startDate { year }';
+  static const _mediaFields = 'id title { userPreferred romaji english } coverImage { large medium } chapters episodes idMal format status startDate { year }';
 
-  Future<List<AlMedia>> search(String text) async {
-    final d = await _query('query (\$s: String) { Page(perPage: 15) { media(search: \$s, type: MANGA, sort: SEARCH_MATCH) { $_mediaFields } } }', {'s': text});
+  Future<List<AlMedia>> search(String text, {String type = 'MANGA'}) async {
+    final d = await _query('query (\$s: String) { Page(perPage: 15) { media(search: \$s, type: $type, sort: SEARCH_MATCH) { $_mediaFields } } }', {'s': text});
     return ((d['Page'] as Map)['media'] as List).map((m) => AlMedia.fromJson(m as Map)).toList();
   }
 
   /// La tua lista manga, divisa per stato.
-  Future<List<AlEntry>> myList() async {
+  Future<List<AlEntry>> myList({String type = 'MANGA'}) async {
     if (!loggedIn) return [];
     final d = await _query(
-      'query (\$u: Int) { MediaListCollection(userId: \$u, type: MANGA) { lists { entries { status progress score(format: POINT_10_DECIMAL) media { $_mediaFields } } } } }',
+      'query (\$u: Int) { MediaListCollection(userId: \$u, type: $type) { lists { entries { status progress score(format: POINT_10_DECIMAL) media { $_mediaFields } } } } }',
       {'u': userId},
     );
     final out = <AlEntry>[];

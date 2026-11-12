@@ -32,6 +32,9 @@ dependencies:
   quick_actions: ^1.1.0
   google_sign_in: ^6.2.2
   audioplayers: ^6.1.0
+  media_kit: ^1.1.11
+  media_kit_video: ^1.2.5
+  media_kit_libs_video: ^1.0.5
   # Motore delle estensioni manga (Mangayomi + Mihon/Aniyomi), lo stesso di AnymeX
   anymex_extension_runtime_bridge:
     git:

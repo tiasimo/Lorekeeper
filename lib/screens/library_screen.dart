@@ -18,6 +18,7 @@ import 'settings_screen.dart';
 import 'spine_editor_screen.dart';
 import 'manga/manga_detail.dart';
 import 'manga/manga_home.dart';
+import 'anime/anime_home.dart';
 import 'manga/manga_settings.dart';
 import '../services/background.dart';
 import '../services/manga_store.dart';
@@ -47,6 +48,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   final store = LibraryStore.I;
   bool _importing = false;
   int _mangaView = 0; // manga: 0 libreria, 1 esplora
+  int _animeView = 0; // anime: 0 videoteca, 1 esplora, 2 estensioni
 
   @override
   void initState() {
@@ -361,7 +363,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 2),
             child: Center(
               child: Segmented(
-                labels: const ['Novel', 'Manga'],
+                labels: const ['Novel', 'Manga', 'Anime'],
                 selected: section,
                 onChanged: (i) {
                   store.app.section = i;
@@ -371,7 +373,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ),
           );
           final body = Stack(children: [
-            if (section == 1)
+            if (section == 2)
+              SafeArea(
+                child: Column(children: [
+                  header,
+                  if (!wide) switcher,
+                  const SizedBox(height: 8),
+                  Expanded(child: AnimeSection(view: _animeView, onView: (v) => setState(() => _animeView = v))),
+                ]),
+              )
+            else if (section == 1)
               SafeArea(
                 child: Column(children: [
                   header,
@@ -419,7 +430,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
               right: 0,
               bottom: 22,
               child: Center(
-                child: section == 1
+                child: section == 2
+                    ? FloatingNav(selected: _animeView, items: [
+                        NavItem(LKGlyph.library, 'Videoteca', () => setState(() => _animeView = 0)),
+                        NavItem(LKGlyph.search, 'Esplora', () => setState(() => _animeView = 1)),
+                        NavItem(LKGlyph.settings, 'Estensioni', () => setState(() => _animeView = 2)),
+                      ])
+                    : section == 1
                     ? FloatingNav(selected: _mangaView, items: [
                         NavItem(LKGlyph.library, 'Libreria', () => setState(() => _mangaView = 0)),
                         NavItem(LKGlyph.search, 'Esplora', () => setState(() => _mangaView = 1)),
@@ -451,9 +468,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
           if (!wide) return body;
           // Tablet: barra laterale, contenuto e pannello a destra
           final rail = SideRail(
-            selected: section == 1 ? _mangaView : 0,
-            accentIndex: section == 1 ? null : 2,
-            items: section == 1
+            selected: section == 2 ? _animeView : (section == 1 ? _mangaView : 0),
+            accentIndex: section == 0 ? 2 : null,
+            items: section == 2
+                ? [
+                    NavItem(LKGlyph.library, 'Videoteca', () => setState(() => _animeView = 0)),
+                    NavItem(LKGlyph.search, 'Esplora', () => setState(() => _animeView = 1)),
+                    NavItem(LKGlyph.settings, 'Estensioni', () => setState(() => _animeView = 2)),
+                  ]
+                : section == 1
                 ? [
                     NavItem(LKGlyph.library, 'Libreria', () => setState(() => _mangaView = 0)),
                     NavItem(LKGlyph.search, 'Esplora', () => setState(() => _mangaView = 1)),
@@ -467,7 +490,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     NavItem(LKGlyph.settings, 'Impostazioni', () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()))),
                   ],
             bottom: VerticalSwitch(
-              labels: const ['Novel', 'Manga'],
+              labels: const ['Novel', 'Manga', 'Anime'],
               selected: section,
               onChanged: (i) {
                 store.app.section = i;

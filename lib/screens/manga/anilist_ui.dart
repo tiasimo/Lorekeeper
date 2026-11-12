@@ -462,7 +462,8 @@ class SourceSearchSheet extends StatefulWidget {
   final List<String> titles;
   final String title;
   final String? excludeSourceId;
-  const SourceSearchSheet({super.key, required this.titles, this.title = 'Dove vuoi leggerlo?', this.excludeSourceId});
+  final bool anime; // cerca nelle sorgenti anime
+  const SourceSearchSheet({super.key, required this.titles, this.title = 'Dove vuoi leggerlo?', this.excludeSourceId, this.anime = false});
   @override
   State<SourceSearchSheet> createState() => SourceSearchSheetState();
 }
@@ -481,7 +482,7 @@ class SourceSearchSheetState extends State<SourceSearchSheet> {
 
   Future<void> _go() async {
     final my = ++_run;
-    final sources = MangaStore.I.ext.installedMangaExtensions.where((s) => s.id != widget.excludeSourceId).toList();
+    final sources = (widget.anime ? MangaStore.I.ext.installedAnimeExtensions : MangaStore.I.ext.installedMangaExtensions).where((s) => s.id != widget.excludeSourceId).toList();
     setState(() {
       _res.clear();
       _errors.clear();
@@ -501,7 +502,7 @@ class SourceSearchSheetState extends State<SourceSearchSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final sources = MangaStore.I.ext.installedMangaExtensions;
+    final sources = widget.anime ? MangaStore.I.ext.installedAnimeExtensions : MangaStore.I.ext.installedMangaExtensions;
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: SizedBox(

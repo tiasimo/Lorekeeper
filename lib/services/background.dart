@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 
+import 'anime_store.dart';
 import 'library_store.dart';
 import 'manga_store.dart';
 
@@ -15,8 +16,9 @@ void backgroundDispatcher() {
       WidgetsFlutterBinding.ensureInitialized();
       await LibraryStore.I.load();
       await MangaStore.I.load();
-      if (MangaStore.I.library.isEmpty) return true;
-      await MangaStore.I.refreshLibrary();
+      if (MangaStore.I.library.isNotEmpty) await MangaStore.I.refreshLibrary();
+      await AnimeStore.I.load();
+      if (AnimeStore.I.library.isNotEmpty) await AnimeStore.I.refreshLibrary();
     } catch (e) {
       debugPrint('Controllo in background non riuscito: $e');
     }
