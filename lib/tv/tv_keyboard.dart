@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme.dart';
+import '../services/crash_log.dart';
 import 'tv_mode.dart';
 
 /// Tastiera a schermo per la TV, comandata con il telecomando (la tastiera di
@@ -25,6 +26,8 @@ class _TvKeyboard extends StatefulWidget {
 class _TvKeyboardState extends State<_TvKeyboard> {
   late String _text = widget.initial;
   bool _upper = false;
+  int _logged = 0;
+  static final _arrows = {LogicalKeyboardKey.arrowUp, LogicalKeyboardKey.arrowDown, LogicalKeyboardKey.arrowLeft, LogicalKeyboardKey.arrowRight};
   // tastiera del sistema (anche quella del telefono dall'app Google Home / Google TV)
   bool _system = false;
   late final _sysCtrl = TextEditingController();
@@ -53,36 +56,21 @@ class _TvKeyboardState extends State<_TvKeyboard> {
       setState(() => _text += ch);
       return KeyEventResult.handled;
     }
+    // per capire che tasti manda il telecomando (si vede in Impostazioni → Errori recenti)
+    if (e is KeyDownEvent && !_arrows.contains(e.logicalKey) && _logged++ < 6) {
+      CrashLog.add('Tastiera TV: tasto ${e.logicalKey.debugName ?? e.logicalKey.keyId} (fisico ${e.physicalKey.debugName ?? e.physicalKey.usbHidUsage})');
+    }
     return KeyEventResult.ignored;
   }
 
-  Widget _key(String label, VoidCallback onTap, {double width = 54, bool accent = false, bool autofocus = false, IconData? icon}) => Padding(
-        padding: const EdgeInsets.all(3),
-        child: SizedBox(
-          width: width,
-          height: 48,
-          child: TextButton(
-            autofocus: autofocus,
-            style: ButtonStyle(
-              backgroundColor: WidgetStatePropertyAll(accent ? LK.accent : const Color(0x1FF3E7CF)),
-              foregroundColor: const WidgetStatePropertyAll(Color(0xFFF3E7CF)),
-              shape: WidgetStatePropertyAll(RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-              padding: const WidgetStatePropertyAll(EdgeInsets.zero),
-              side: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.focused) ? const BorderSide(color: Color(0xFFE0703F), width: 3) : BorderSide.none),
-              overlayColor: const WidgetStatePropertyAll(Color(0x33E0703F)),
-            ),
-            onPressed: onTap,
-            child: icon != null && label.isNotEmpty
-                ? Row(mainAxisSize: MainAxisSize.min, children: [Icon(icon, size: 20), const SizedBox(width: 8), Text(label, style: LK.label(12, color: const Color(0xFFF3E7CF), spacing: 0.3))])
-                : icon != null ? Icon(icon, size: 22) : Text(label, style: LK.label(label.length > 3 ? 12 : 17, color: const Color(0xFFF3E7CF), spacing: 0.3)),
-          ),
-        ),
-      );
+  Widget _key(String label, VoidCallback onTap, {double width = 54, bool accent = false, bool autofocus = false, IconData? icon}) =>
+      _KbKey(label: label, onTap: onTap, width: width, accent: accent, autofocus: autofocus, icon: icon);
 
   @override
   Widget build(BuildContext context) {
     return Dialog(
       backgroundColor: const Color(0xFF241D19),
+      surfaceTintColor: Colors.transparent,
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Focus(
@@ -193,6 +181,82 @@ class TvTextField extends StatelessWidget {
         child: InputDecorator(
           decoration: (decoration ?? InputDecoration(hintText: hint)).copyWith(hintText: controller.text.isEmpty ? (decoration?.hintText ?? hint) : null),
           child: Text(controller.text, style: style ?? LK.body(15)),
+        ),
+      ),
+    );
+  }
+}
+
+/// Tasto della tastiera a schermo: OK / Invio / tasto centrale del telecomando lo premono
+/// direttamente (senza passare dalle scorciatoie dell'app, che su alcuni telecomandi non arrivano).
+class _KbKey extends StatefulWidget {
+  final String label;
+  final VoidCallback onTap;
+  final double width;
+  final bool accent, autofocus;
+  final IconData? icon;
+  const _KbKey({required this.label, required this.onTap, required this.width, required this.accent, required this.autofocus, this.icon});
+  @override
+  State<_KbKey> createState() => _KbKeyState();
+}
+
+class _KbKeyState extends State<_KbKey> {
+  bool _focused = false, _pressed = false;
+  static final _activate = {
+    LogicalKeyboardKey.select,
+    LogicalKeyboardKey.enter,
+    LogicalKeyboardKey.numpadEnter,
+    LogicalKeyboardKey.gameButtonA,
+    LogicalKeyboardKey.mediaPlayPause,
+  };
+
+  void _press() {
+    widget.onTap();
+    setState(() => _pressed = true);
+    Future.delayed(const Duration(milliseconds: 120), () {
+      if (mounted) setState(() => _pressed = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const ink = Color(0xFFF3E7CF);
+    final label = widget.label;
+    final child = widget.icon != null && label.isNotEmpty
+        ? Row(mainAxisSize: MainAxisSize.min, children: [Icon(widget.icon, size: 20, color: ink), const SizedBox(width: 8), Text(label, style: LK.label(12, color: ink, spacing: 0.3))])
+        : widget.icon != null
+            ? Icon(widget.icon, size: 22, color: ink)
+            : Text(label, style: LK.label(label.length > 3 ? 12 : 17, color: ink, spacing: 0.3));
+    return Padding(
+      padding: const EdgeInsets.all(3),
+      child: Focus(
+        autofocus: widget.autofocus,
+        onFocusChange: (v) => setState(() => _focused = v),
+        onKeyEvent: (node, e) {
+          if (!_activate.contains(e.logicalKey)) return KeyEventResult.ignored;
+          if (e is KeyDownEvent) _press();
+          return KeyEventResult.handled;
+        },
+        child: GestureDetector(
+          onTap: _press,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 90),
+            width: widget.width,
+            height: 48,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: _pressed
+                  ? const Color(0xFFE0703F)
+                  : widget.accent
+                      ? LK.accent
+                      : _focused
+                          ? const Color(0x55E0703F)
+                          : const Color(0xFF3A302A),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: _focused ? const Color(0xFFE0703F) : Colors.transparent, width: 3),
+            ),
+            child: child,
+          ),
         ),
       ),
     );
