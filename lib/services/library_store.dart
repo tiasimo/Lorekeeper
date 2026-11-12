@@ -475,6 +475,27 @@ class LibraryStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Mette un oggetto decorativo in fondo a uno scaffale.
+  void addObjectToShelf(String key, String name) {
+    var last = -1;
+    String? cur;
+    for (var i = 0; i < shelf.length; i++) {
+      final e = shelf[i];
+      String k;
+      if (e.startsWith('b:')) {
+        final b = byId(e.substring(2));
+        k = b == null ? (cur ?? singleShelf) : groupOfBook(b);
+      } else {
+        k = cur ?? singleShelf;
+      }
+      cur = k;
+      if (k == key) last = i;
+    }
+    shelf.insert(last < 0 ? shelf.length : last + 1, 'o:$name');
+    save();
+    notifyListeners();
+  }
+
   /// Sposta una voce di un posto a sinistra/destra restando nel suo scaffale.
   void moveInShelf(String entry, int dir) {
     final groups = shelfGroups();

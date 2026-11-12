@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:home_widget/home_widget.dart';
+import 'package:quick_actions/quick_actions.dart';
 import 'package:flutter/material.dart';
 
 import '../models/book.dart';
@@ -22,6 +23,8 @@ import '../services/background.dart';
 import '../services/manga_store.dart';
 import 'stats_screen.dart';
 import '../widgets/shelf_backdrop.dart';
+import '../widgets/lantern.dart';
+import '../widgets/decor_objects.dart';
 import '../widgets/seasonal.dart';
 import '../widgets/shelf_customize.dart';
 import '../services/home_widget_sync.dart';
@@ -47,6 +50,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       final u = await Updater.checkIfDue();
       if (u != null && mounted) showUpdateDialog(context, u);
     });
+    // Scorciatoie tenendo premuta l'icona dell'app
+    _setupShortcuts();
     // Manga: controllo dei nuovi capitoli in background ogni 3 ore
     Background.setup();
     // e all'apertura (al massimo ogni 12 ore)
@@ -58,6 +63,38 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   StreamSubscription<Uri?>? _widgetSub;
+
+  void _setupShortcuts() {
+    const qa = QuickActions();
+    qa.initialize((type) async {
+      // attendo che la libreria sia pronta
+      for (var i = 0; i < 40 && !store.loaded; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      if (!mounted) return;
+      switch (type) {
+        case 'novel':
+          store.app.section = 0;
+          store.saveAppPrefs();
+          _continue();
+        case 'manga':
+          store.app.section = 1;
+          store.saveAppPrefs();
+          await MangaStore.I.load();
+          final m = HomeWidgetSync.lastManga();
+          if (m != null && mounted) Navigator.of(context).push(bookRoute(MangaDetail(manga: m)));
+        case 'import':
+          store.app.section = 0;
+          store.saveAppPrefs();
+          _import();
+      }
+    });
+    qa.setShortcutItems(const [
+      ShortcutItem(type: 'novel', localizedTitle: 'Continua novel', icon: 'ic_shortcut_book'),
+      ShortcutItem(type: 'manga', localizedTitle: 'Continua manga', icon: 'ic_shortcut_manga'),
+      ShortcutItem(type: 'import', localizedTitle: 'Importa EPUB', icon: 'ic_shortcut_add'),
+    ]).catchError((_) {});
+  }
 
   Future<void> _fromWidget(Uri? uri) async {
     if (uri == null || !mounted) return;
@@ -174,7 +211,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ),
           ListTile(
             leading: Icon(Icons.delete_outline, color: LK.accent),
-            title: Text(book != null ? 'Rimuovi dalla libreria' : 'Rimuovi divisorio'),
+            title: Text(book != null ? 'Rimuovi dalla libreria' : (entry.startsWith('o:') ? 'Togli l\'oggetto' : 'Rimuovi divisorio')),
             onTap: () async {
               Navigator.pop(ctx);
               if (book != null) {
@@ -299,6 +336,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           ]),
                         ),
                       ),
+                      const Padding(padding: EdgeInsets.only(right: 4), child: HomeLantern()),
                       IconButton(
                         tooltip: 'Impostazioni',
                         icon: LKIcon(LKGlyph.settings, color: LK.accent),
@@ -513,7 +551,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final entries = <String>[for (final e in raw) if (!(auto && e.startsWith('d:'))) e];
     final books = entries.where((e) => e.startsWith('b:')).length;
     if (auto && books > 0) entries.add('d:${DividerArt.all[key.hashCode.abs() % DividerArt.all.length].id}');
-    if (books <= 3) entries.add('o:${_decor[(key.hashCode ~/ 7).abs() % _decor.length]}');
+    if (books <= 3 && !entries.any((e) => e.startsWith('o:'))) entries.add('a:${_decor[(key.hashCode ~/ 7).abs() % _decor.length]}');
     final wood = store.app.woodFor(key);
     final season = store.app.decoFor(key) ? currentSeason() : null;
     // compleanno della saga: il giorno in cui hai aggiunto il primo volume
@@ -547,10 +585,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
               );
             }
             final e = entries[i];
-            if (e.startsWith('o:')) {
-              return Padding(
-                padding: const EdgeInsets.only(left: 18),
-                child: Align(alignment: Alignment.bottomCenter, child: Image.asset('assets/decor/${e.substring(2)}.webp', height: 150, fit: BoxFit.contain)),
+            if (e.startsWith('o:') || e.startsWith('a:')) {
+              return GestureDetector(
+                onLongPress: e.startsWith('o:') ? () => _entryOptions(e) : null,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: Align(alignment: Alignment.bottomCenter, child: DecorObject(e.substring(2), height: 150)),
+                ),
               );
             }
             if (e.startsWith('d:')) {

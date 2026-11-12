@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/library_store.dart';
 import '../theme.dart';
+import 'decor_objects.dart';
 import 'seasonal.dart';
 import 'shelf_backdrop.dart';
 import 'spine.dart';
@@ -87,6 +88,27 @@ Future<void> showShelfCustomize(BuildContext context, {required String key, requ
                   ),
               ]),
             ),
+            const SizedBox(height: 12),
+            Text('OGGETTI DA METTERE SULLO SCAFFALE', style: LK.label(10, spacing: 1.4)),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 98,
+              child: ListView(scrollDirection: Axis.horizontal, children: [
+                for (final o in decorObjects.entries)
+                  tile(o.value, manga && ((look['objects'] as List?) ?? const []).contains(o.key), () {
+                    if (manga) {
+                      final list = List<String>.from((look['objects'] as List?) ?? const []);
+                      list.contains(o.key) ? list.remove(o.key) : list.add(o.key);
+                      set('objects', list);
+                    } else {
+                      store.addObjectToShelf(key, o.key);
+                      Navigator.pop(ctx);
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${o.value} messo sullo scaffale: tienilo premuto per spostarlo o toglierlo')));
+                    }
+                  }, Padding(padding: const EdgeInsets.all(4), child: FittedBox(child: DecorObject(o.key, height: 120)))),
+              ]),
+            ),
+            Text(manga ? 'Tocca per aggiungere o togliere: gli oggetti stanno in fondo allo scaffale.' : 'Tocca un oggetto per metterlo in fondo allo scaffale.', style: LK.body(12, color: LK.muted, style: FontStyle.italic)),
             const SizedBox(height: 8),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,

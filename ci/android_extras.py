@@ -254,3 +254,21 @@ if 'flutter_web_auth_2.CallbackActivity' not in m:
         </activity>
     </application>""", 1)
     open(M, 'w').write(m)
+
+# ---------------------------------------------------------------------------
+# Icone delle scorciatoie (tenendo premuta l'icona dell'app)
+SHORT = {
+    'ic_shortcut_book': 'M4,5h7c1.1,0 2,0.9 2,2v12c0,-0.8 -0.9,-1.5 -2,-1.5H4V5zM20,5h-7c-1.1,0 -2,0.9 -2,2v12c0,-0.8 0.9,-1.5 2,-1.5h7V5z',
+    'ic_shortcut_manga': 'M4,4h16v16H4V4zM4,11h16M12,4l-1.5,7M14,11l1.5,9',
+    'ic_shortcut_add': 'M12,4v16M4,12h16',
+}
+for name, d in SHORT.items():
+    with open(f'{RES}/drawable/{name}.xml', 'w') as f:
+        f.write(f"""<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="48dp" android:height="48dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:pathData="M12,0a12,12 0 1,0 0.01,0z" android:fillColor="#9A3F2B"/>
+    <group android:scaleX="0.6" android:scaleY="0.6" android:pivotX="12" android:pivotY="12">
+        <path android:pathData="{d}" android:strokeColor="#FFF6EEDC" android:strokeWidth="2" android:fillColor="#00000000" android:strokeLineCap="round" android:strokeLineJoin="round"/>
+    </group>
+</vector>
+""")

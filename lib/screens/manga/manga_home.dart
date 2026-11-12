@@ -9,6 +9,7 @@ import '../../widgets/manga_image.dart';
 import '../../widgets/spine.dart';
 import '../../widgets/shelf_backdrop.dart';
 import '../../widgets/seasonal.dart';
+import '../../widgets/decor_objects.dart';
 import '../../widgets/shelf_customize.dart';
 import '../../services/library_store.dart';
 import '../spine_editor_screen.dart';
@@ -421,6 +422,7 @@ class _LibraryTab extends StatelessWidget {
       LayoutBuilder(builder: (context, c) {
         final inner = c.maxWidth - 32 - ShelfSide.width * 2 - 20;
         // divido i dorsi in ripiani in base alla larghezza
+        final objects = ((app.shelfLooks[key]?['objects'] as List?) ?? const []).cast<String>();
         final rows = <List<SavedManga>>[];
         var cur = <SavedManga>[];
         var used = 0.0;
@@ -447,6 +449,9 @@ class _LibraryTab extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(horizontal: ShelfSide.width + 10),
                       child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
                         for (final m in row) Padding(padding: const EdgeInsets.only(right: 6), child: _spine(context, m)),
+                        if (identical(row, rows.last))
+                          for (final o in objects)
+                            Flexible(child: Padding(padding: const EdgeInsets.only(left: 4), child: Align(alignment: Alignment.bottomCenter, child: DecorObject(o, height: 140)))),
                       ]),
                     ),
                   ),
