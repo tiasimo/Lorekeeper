@@ -272,3 +272,17 @@ for name, d in SHORT.items():
     </group>
 </vector>
 """)
+
+# --- Android TV: compare nel launcher della TV con il suo riquadro, senza richiedere il touch.
+import shutil
+os.makedirs(f'{RES}/drawable-xhdpi', exist_ok=True)
+shutil.copy('ci/tv/tv_banner.png', f'{RES}/drawable-xhdpi/tv_banner.png')
+m = open(M).read()
+if 'android.software.leanback' not in m:
+    m = m.replace('<application', '<uses-feature android:name="android.software.leanback" android:required="false"/>\n    <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>\n    <application', 1)
+    m = m.replace('<application', '<application\n        android:banner="@drawable/tv_banner"', 1)
+    m = m.replace('<category android:name="android.intent.category.LAUNCHER"/>', '<category android:name="android.intent.category.LAUNCHER"/>\n                <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>', 1)
+    if 'LEANBACK_LAUNCHER' not in m:
+        m = m.replace('<category android:name="android.intent.category.LAUNCHER" />', '<category android:name="android.intent.category.LAUNCHER" />\n                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />', 1)
+open(M, 'w').write(m)
+print('TV:', 'LEANBACK_LAUNCHER' in m)

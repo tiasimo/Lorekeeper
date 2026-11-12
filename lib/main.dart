@@ -8,10 +8,12 @@ import 'services/ambience.dart';
 import 'services/drive_sync.dart';
 import 'services/library_store.dart';
 import 'theme.dart';
+import 'tv/tv_mode.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
+  await detectTv();
   final prefs = await SharedPreferences.getInstance();
   LibraryStore.I.appTheme = prefs.getString('appTheme') ?? 'Sistema';
   runApp(const LorekeeperApp());

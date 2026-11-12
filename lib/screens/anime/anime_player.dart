@@ -253,6 +253,7 @@ class _AnimePlayerState extends State<AnimePlayer> {
       s.cancel();
     }
     _player.dispose();
+    _keyFocus.dispose();
     SystemChrome.setPreferredOrientations([]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
@@ -532,8 +533,43 @@ class _AnimePlayerState extends State<AnimePlayer> {
     ]);
   }
 
+  // telecomando: ◀ ▶ ±10 s, OK pausa (o salta la sigla), ▲ ▼ mostra i comandi
+  final _keyFocus = FocusNode();
+  KeyEventResult _onKey(FocusNode node, KeyEvent e) {
+    if (e is! KeyDownEvent && e is! KeyRepeatEvent) return KeyEventResult.ignored;
+    final k = e.logicalKey;
+    if (_ui && (k == LogicalKeyboardKey.arrowUp || k == LogicalKeyboardKey.arrowDown)) return KeyEventResult.ignored;
+    if (_ui && (k == LogicalKeyboardKey.select || k == LogicalKeyboardKey.enter)) return KeyEventResult.ignored;
+    if (k == LogicalKeyboardKey.arrowRight || k == LogicalKeyboardKey.mediaFastForward) {
+      _seek(_pos + const Duration(seconds: 10));
+    } else if (k == LogicalKeyboardKey.arrowLeft || k == LogicalKeyboardKey.mediaRewind) {
+      _seek(_pos - const Duration(seconds: 10));
+    } else if (k == LogicalKeyboardKey.select || k == LogicalKeyboardKey.enter || k == LogicalKeyboardKey.mediaPlayPause || k == LogicalKeyboardKey.space) {
+      final skip = _activeSkip();
+      if (skip != null) {
+        _seek(skip.$3);
+      } else if (_nextIn != null && _nextEp != null) {
+        _open(_nextEp!);
+      } else {
+        _player.playOrPause();
+        _bumpUi();
+      }
+    } else if (k == LogicalKeyboardKey.arrowUp || k == LogicalKeyboardKey.arrowDown) {
+      _bumpUi();
+    } else if (k == LogicalKeyboardKey.mediaTrackNext && _nextEp != null) {
+      _open(_nextEp!);
+    } else if (k == LogicalKeyboardKey.mediaTrackPrevious && _prevEp != null) {
+      _open(_prevEp!);
+    } else {
+      return KeyEventResult.ignored;
+    }
+    return KeyEventResult.handled;
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => Focus(focusNode: _keyFocus, autofocus: true, onKeyEvent: _onKey, child: _buildPlayer(context));
+
+  Widget _buildPlayer(BuildContext context) {
     final land = MediaQuery.orientationOf(context) == Orientation.landscape;
     final player = Stack(children: [
       Positioned.fill(child: Video(controller: _video, controls: NoVideoControls, fill: Colors.black)),

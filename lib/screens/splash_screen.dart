@@ -1,3 +1,5 @@
+import '../tv/tv_home.dart';
+import '../tv/tv_mode.dart';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -36,7 +38,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
     if (!mounted) return;
     Navigator.of(context).pushReplacement(PageRouteBuilder(
       transitionDuration: const Duration(milliseconds: 600),
-      pageBuilder: (_, __, ___) => const LibraryScreen(),
+      pageBuilder: (_, __, ___) => tvMode ? const TvHome() : const LibraryScreen(),
       transitionsBuilder: (_, a, __, child) => FadeTransition(opacity: a, child: child),
     ));
   }

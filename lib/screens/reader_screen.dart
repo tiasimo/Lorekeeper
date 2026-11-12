@@ -25,6 +25,7 @@ import '../widgets/page_turner.dart';
 import '../widgets/quote_card.dart';
 import '../widgets/word_sheet.dart';
 import 'book_extras.dart';
+import '../tv/tv_mode.dart';
 import 'reader_panel.dart';
 import '../widgets/adaptive.dart';
 import 'world_map.dart';
@@ -650,6 +651,23 @@ class _ReaderScreenState extends State<ReaderScreen> {
   // ---------- tasti del volume ----------
 
   KeyEventResult _onKey(FocusNode node, KeyEvent e) {
+    // telecomando della TV: frecce per girare pagina, OK per i comandi
+    if (tvMode && !_ui && paged) {
+      final k = e.logicalKey;
+      final fwd = k == LogicalKeyboardKey.arrowRight || k == LogicalKeyboardKey.arrowDown;
+      final back = k == LogicalKeyboardKey.arrowLeft || k == LogicalKeyboardKey.arrowUp;
+      final ok = k == LogicalKeyboardKey.select || k == LogicalKeyboardKey.enter;
+      if (fwd || back || ok) {
+        if (e is KeyDownEvent || e is KeyRepeatEvent) {
+          if (ok) {
+            setState(() => _ui = true);
+          } else {
+            _turner.currentState?.turn(fwd ? 1 : -1);
+          }
+        }
+        return KeyEventResult.handled;
+      }
+    }
     if (!prefs.volumeKeys || !paged) return KeyEventResult.ignored;
     final down = e.logicalKey == LogicalKeyboardKey.audioVolumeDown;
     final up = e.logicalKey == LogicalKeyboardKey.audioVolumeUp;

@@ -709,8 +709,31 @@ class _MangaReaderState extends State<MangaReader> {
     return c;
   }
 
+  // telecomando della TV (e tastiera): frecce per le pagine, OK per i comandi
+  KeyEventResult _onKey(FocusNode node, KeyEvent e) {
+    if (_ui) return KeyEventResult.ignored;
+    final k = e.logicalKey;
+    int? dir;
+    if (k == LogicalKeyboardKey.arrowRight) dir = _rtl ? -1 : 1;
+    if (k == LogicalKeyboardKey.arrowLeft) dir = _rtl ? 1 : -1;
+    if (k == LogicalKeyboardKey.arrowDown || k == LogicalKeyboardKey.pageDown) dir = 1;
+    if (k == LogicalKeyboardKey.arrowUp || k == LogicalKeyboardKey.pageUp) dir = -1;
+    final ok = k == LogicalKeyboardKey.select || k == LogicalKeyboardKey.enter;
+    if (dir == null && !ok) return KeyEventResult.ignored;
+    if (e is KeyDownEvent || e is KeyRepeatEvent) {
+      if (ok) {
+        _toggleUi(true);
+      } else {
+        _step(dir!);
+      }
+    }
+    return KeyEventResult.handled;
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => Focus(autofocus: true, onKeyEvent: _onKey, child: _buildReader(context));
+
+  Widget _buildReader(BuildContext context) {
     final pad = MediaQuery.of(context).padding;
     const ink = Color(0xFFEFE4D2);
     // in orizzontale, con le modalità per pagina, due pagine affiancate
