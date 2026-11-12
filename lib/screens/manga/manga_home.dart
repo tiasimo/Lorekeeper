@@ -763,9 +763,9 @@ class _ExploreTabState extends State<SourceExploreTab> {
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 6),
-          child: TextField(
+          child: TvTextField(
             controller: _q,
-            textInputAction: TextInputAction.search,
+            hint: 'Cerca',
             onSubmitted: (v) {
               if (_global) {
                 setState(() {});

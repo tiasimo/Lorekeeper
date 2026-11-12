@@ -25,6 +25,15 @@ class _TvKeyboard extends StatefulWidget {
 class _TvKeyboardState extends State<_TvKeyboard> {
   late String _text = widget.initial;
   bool _upper = false;
+  // tastiera del sistema (anche quella del telefono dall'app Google Home / Google TV)
+  bool _system = false;
+  late final _sysCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _sysCtrl.dispose();
+    super.dispose();
+  }
 
   static const _rows = ['1234567890', 'qwertyuiop', 'asdfghjkl\'', 'zxcvbnm,.-'];
   static const _urlKeys = ['https://', '/', ':', '.com', '.json', '_', '?', '=', '&', '@'];
@@ -63,7 +72,9 @@ class _TvKeyboardState extends State<_TvKeyboard> {
               overlayColor: const WidgetStatePropertyAll(Color(0x33E0703F)),
             ),
             onPressed: onTap,
-            child: icon != null ? Icon(icon, size: 22) : Text(label, style: LK.label(label.length > 3 ? 12 : 17, color: const Color(0xFFF3E7CF), spacing: 0.3)),
+            child: icon != null && label.isNotEmpty
+                ? Row(mainAxisSize: MainAxisSize.min, children: [Icon(icon, size: 20), const SizedBox(width: 8), Text(label, style: LK.label(12, color: const Color(0xFFF3E7CF), spacing: 0.3))])
+                : icon != null ? Icon(icon, size: 22) : Text(label, style: LK.label(label.length > 3 ? 12 : 17, color: const Color(0xFFF3E7CF), spacing: 0.3)),
           ),
         ),
       );
@@ -84,6 +95,28 @@ class _TvKeyboardState extends State<_TvKeyboard> {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             if (widget.title.isNotEmpty) Text(widget.title, style: LK.display(20, color: const Color(0xFFF3E7CF))),
             const SizedBox(height: 10),
+            if (_system) ...[
+              SizedBox(
+                width: 640,
+                child: TextField(
+                  controller: _sysCtrl,
+                  autofocus: true,
+                  keyboardType: widget.url ? TextInputType.url : TextInputType.text,
+                  textInputAction: TextInputAction.done,
+                  style: LK.body(22, color: const Color(0xFFF3E7CF)),
+                  decoration: const InputDecoration(filled: true, fillColor: Color(0x14F3E7CF), hintText: 'Scrivi con la tastiera della TV o del telefono'),
+                  onSubmitted: (v) => Navigator.pop(context, v),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(mainAxisSize: MainAxisSize.min, children: [
+                _key('TASTIERA A SCHERMO', () => setState(() {
+                      _text = _sysCtrl.text;
+                      _system = false;
+                    }), width: 220),
+                _key('OK', () => Navigator.pop(context, _sysCtrl.text), width: 110, accent: true),
+              ]),
+            ] else ...[
             Container(
               width: 640,
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
@@ -107,6 +140,13 @@ class _TvKeyboardState extends State<_TvKeyboard> {
               _key('PULISCI', () => setState(() => _text = ''), width: 100),
               _key('OK', () => Navigator.pop(context, _text), width: 110, accent: true),
             ]),
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              _key('USA LA TASTIERA DEL TELEFONO O DELLA TV', () => setState(() {
+                    _sysCtrl.text = _text;
+                    _system = true;
+                  }), width: 420, icon: Icons.keyboard_alt_outlined),
+            ]),
+            ],
           ]),
           ),
         ),

@@ -5,6 +5,7 @@ import '../../services/anilist.dart';
 import '../../services/anime_store.dart';
 import '../../services/manga_store.dart';
 import '../../theme.dart';
+import '../../tv/tv_keyboard.dart';
 import '../../widgets/common.dart';
 import '../manga/anilist_ui.dart';
 import 'anime_player.dart';
@@ -125,7 +126,7 @@ class _AnimeDetailState extends State<AnimeDetail> {
           child: Column(children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: TextField(controller: q, onSubmitted: (_) => go(), decoration: InputDecoration(prefixIcon: Icon(Icons.search, color: LK.muted), hintText: 'Cerca su AniList')),
+              child: TvTextField(controller: q, hint: 'Cerca su AniList', onSubmitted: (_) => go(), decoration: InputDecoration(prefixIcon: Icon(Icons.search, color: LK.muted), hintText: 'Cerca su AniList')),
             ),
             if (busy) LinearProgressIndicator(color: LK.accent),
             Expanded(

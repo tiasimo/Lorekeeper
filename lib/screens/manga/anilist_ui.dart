@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../services/anilist.dart';
 import '../../services/manga_store.dart';
 import '../../theme.dart';
+import '../../tv/tv_keyboard.dart';
 import '../../widgets/common.dart';
 import 'manga_detail.dart';
 
@@ -210,9 +211,9 @@ class _AlSearchState extends State<_AlSearch> {
         child: Column(children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: TextField(
+            child: TvTextField(
               controller: _q,
-              textInputAction: TextInputAction.search,
+              hint: 'Cerca su AniList…',
               onSubmitted: (_) => _go(),
               decoration: InputDecoration(
                 hintText: 'Cerca su AniList…',
@@ -514,9 +515,9 @@ class SourceSearchSheetState extends State<SourceSearchSheet> {
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-            child: TextField(
+            child: TvTextField(
               controller: _q,
-              textInputAction: TextInputAction.search,
+              hint: 'Cerca il titolo',
               onSubmitted: (_) => _go(),
               decoration: InputDecoration(
                 prefixIcon: Icon(Icons.search, color: LK.muted),
