@@ -65,6 +65,69 @@ class Backup {
     return out;
   }
 
+  /// Solo alcune parti (la TV prende solo anime e AniList, senza libri né manga).
+  static const animeFiles = {'anime.json'};
+  static const animePrefs = {'stats.adays', 'stats.aepdays', 'anime.history', 'anilist.user', 'anilist.name', 'anilist.avatar', 'anilist.client', 'manga.imgBridge'};
+
+  /// Ripristina solo [files] e le preferenze [prefKeys] da un backup.
+  static Future<void> restoreParts(String zipPath, {required Set<String> files, required Set<String> prefKeys}) async {
+    final arch = ZipDecoder().decodeBytes(await File(zipPath).readAsBytes());
+    final meta = arch.findFile('backup.json');
+    if (meta == null) throw Exception('Backup non valido');
+    final info = jsonDecode(utf8.decode(meta.content as List<int>)) as Map;
+    lastExtra = (info['extra'] as Map?)?.cast<String, dynamic>();
+    final root = LibraryStore.I.dataDir;
+    for (final n in files) {
+      final f = arch.findFile(n);
+      if (f == null) continue;
+      await File(p.join(root, n)).writeAsBytes(f.content as List<int>);
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final pj = (info['prefs'] as Map?) ?? const {};
+    for (final e in pj.entries) {
+      final k = e.key as String, v = e.value;
+      if (!prefKeys.contains(k)) continue;
+      if (v is String) await prefs.setString(k, v);
+      if (v is int) await prefs.setInt(k, v);
+      if (v is double) await prefs.setDouble(k, v);
+      if (v is bool) await prefs.setBool(k, v);
+    }
+  }
+
+  /// Prende il backup remoto e ci mette dentro solo le parti locali [files] e [prefKeys]
+  /// (tutto il resto, libri e manga del telefono, resta com'è).
+  static Future<List<int>> patchParts(List<int> remoteZip, {required Set<String> files, required Set<String> prefKeys}) async {
+    final old = ZipDecoder().decodeBytes(remoteZip);
+    final out = Archive();
+    final root = LibraryStore.I.dataDir;
+    final prefs = await SharedPreferences.getInstance();
+    for (final f in old.files) {
+      if (!f.isFile || files.contains(f.name)) continue;
+      if (f.name == 'backup.json') {
+        final info = jsonDecode(utf8.decode(f.content as List<int>)) as Map;
+        final pj = Map<String, Object?>.from((info['prefs'] as Map?) ?? const {});
+        for (final k in prefKeys) {
+          final v = prefs.get(k);
+          if (v != null) pj[k] = v;
+        }
+        info['prefs'] = pj;
+        info['at'] = DateTime.now().toIso8601String();
+        final b = utf8.encode(jsonEncode(info));
+        out.addFile(ArchiveFile('backup.json', b.length, b));
+        continue;
+      }
+      final bytes = f.content as List<int>;
+      out.addFile(ArchiveFile(f.name, bytes.length, bytes));
+    }
+    for (final n in files) {
+      final lf = File(p.join(root, n));
+      if (!lf.existsSync()) continue;
+      final b = lf.readAsBytesSync();
+      out.addFile(ArchiveFile(n, b.length, b));
+    }
+    return ZipEncoder().encode(out)!;
+  }
+
   /// Ripristina un backup. Gli EPUB vanno reimportati: i libri ritrovano progressi e note.
   static Future<int> restore(String zipPath) async {
     final arch = ZipDecoder().decodeBytes(await File(zipPath).readAsBytes());

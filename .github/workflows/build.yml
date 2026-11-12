@@ -72,3 +72,20 @@ jobs:
           cp build/app/outputs/flutter-apk/app-release.apk Lorekeeper.apk
           MSG=$(git log -1 --pretty=%s)
           gh release create "build-${{ github.run_number }}" Lorekeeper.apk --title "Lorekeeper build ${{ github.run_number }}" --notes "$MSG" --latest
+          # APK più leggeri, uno per tipo di processore (l'app sceglie quello giusto)
+          BT=$(ls $ANDROID_HOME/build-tools | sort -V | tail -1)
+          ALL=$(unzip -Z1 Lorekeeper.apk 'lib/*' | cut -d/ -f2 | sort -u)
+          echo "ABI presenti: $ALL"
+          for ABI in arm64-v8a armeabi-v7a; do
+            echo "$ALL" | grep -qx "$ABI" || continue
+            cp Lorekeeper.apk tmp.apk
+            for OTHER in $ALL; do
+              [ "$OTHER" = "$ABI" ] || zip -q -d tmp.apk "lib/$OTHER/*"
+            done
+            $ANDROID_HOME/build-tools/$BT/zipalign -f -P 16 4 tmp.apk aligned.apk || $ANDROID_HOME/build-tools/$BT/zipalign -f -p 4 tmp.apk aligned.apk
+            $ANDROID_HOME/build-tools/$BT/apksigner sign --ks android-signing/debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey --key-pass pass:android --out "Lorekeeper-$ABI.apk" aligned.apk
+            $ANDROID_HOME/build-tools/$BT/apksigner verify "Lorekeeper-$ABI.apk"
+            ls -la "Lorekeeper-$ABI.apk"
+            rm -f tmp.apk aligned.apk
+          done
+          gh release upload "build-${{ github.run_number }}" Lorekeeper-*.apk

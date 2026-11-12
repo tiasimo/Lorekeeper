@@ -34,7 +34,7 @@ class TvHome extends StatefulWidget {
 
 class _TvHomeState extends State<TvHome> {
   int _tab = 0;
-  final _tabNodes = List.generate(6, (i) => FocusNode(debugLabel: 'tab$i'));
+  final _tabNodes = List.generate(5, (i) => FocusNode(debugLabel: 'tab$i'));
   final _content = FocusScopeNode(debugLabel: 'contenuto');
 
   @override
@@ -67,7 +67,7 @@ class _TvHomeState extends State<TvHome> {
   bool _ready = false;
   bool _bridge = false; // motore delle estensioni pronto (serve a Cerca ed Estensioni)
 
-  static const _tabs = ['Anime', 'Manga', 'Novel', 'Cerca', 'Estensioni', 'Impostazioni'];
+  static const _tabs = ['Anime', 'Manga', 'Cerca', 'Estensioni', 'Impostazioni'];
 
   @override
   void initState() {
@@ -169,10 +169,9 @@ class _TvHomeState extends State<TvHome> {
                 : switch (_tab) {
                     0 => _anime(),
                     1 => _manga(),
-                    2 => _novel(),
-                    3 || 4 when !_bridge => const Center(child: CircularProgressIndicator(color: TV.accent)),
-                    3 => TvSearch(onFocusInfo: (x) => _focusInfo(x.$1, x.$2)),
-                    4 => _extensions(),
+                    2 || 3 when !_bridge => const Center(child: CircularProgressIndicator(color: TV.accent)),
+                    2 => TvSearch(onFocusInfo: (x) => _focusInfo(x.$1, x.$2)),
+                    3 => _extensions(),
                     _ => const TvSettings(),
                   },
               ),

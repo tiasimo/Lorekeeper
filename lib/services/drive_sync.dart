@@ -15,6 +15,7 @@ import 'anime_store.dart';
 import 'anilist.dart';
 import 'backup.dart';
 import 'manga_store.dart';
+import '../tv/tv_mode.dart';
 import 'library_store.dart';
 
 /// Sincronizzazione tra dispositivi tramite la cartella privata dell'app su Google Drive
@@ -145,14 +146,33 @@ class DriveSync extends ChangeNotifier {
         final bytes = await _get(remote.first['id'] as String);
         final f = File(p.join(Directory.systemTemp.path, _dataName));
         await f.writeAsBytes(bytes);
-        await Backup.restore(f.path);
+        if (tvMode) {
+          // la TV prende solo anime, AniList ed estensioni: niente libri né manga
+          await Backup.restoreParts(f.path, files: Backup.animeFiles, prefKeys: Backup.animePrefs);
+        } else {
+          await Backup.restore(f.path);
+        }
         final extra = Backup.lastExtra;
         if (extra != null) unawaited(_applyExtras(extra));
         await AnimeStore.I.reload();
-        await MangaStore.I.reload();
+        if (!tvMode) await MangaStore.I.reload();
         await prefs.setInt('sync.at', remoteAt);
         await prefs.remove('sync.dirty');
-        await _pullBooks();
+        if (!tvMode) await _pullBooks();
+      } else if (tvMode && (dirty > last || forcePush)) {
+        // la TV rimanda solo i suoi anime, dentro il backup del telefono
+        if (remote.isEmpty) {
+          error = 'Sincronizza prima dal telefono: la TV aggiunge solo gli anime.';
+        } else {
+          _set('Carico gli anime su Drive…');
+          final now = DateTime.now().millisecondsSinceEpoch;
+          final bytes = await Backup.patchParts(await _get(remote.first['id'] as String), files: Backup.animeFiles, prefKeys: Backup.animePrefs);
+          await _put(_dataName, bytes, id: remote.first['id'] as String, props: {'at': '$now'}, mime: 'application/zip');
+          await prefs.setInt('sync.at', now);
+          await prefs.remove('sync.dirty');
+        }
+      } else if (tvMode) {
+        // niente da fare
       } else if (dirty > last || remote.isEmpty || forcePush) {
         _set('Carico i dati su Drive…');
         final now = DateTime.now().millisecondsSinceEpoch;
@@ -162,7 +182,7 @@ class DriveSync extends ChangeNotifier {
         await prefs.remove('sync.dirty');
         await _pushBooks();
       } else {
-        await _pullBooks();
+        if (!tvMode) await _pullBooks();
       }
       lastSync = DateTime.now();
     } catch (e) {

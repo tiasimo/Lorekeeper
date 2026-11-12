@@ -54,7 +54,7 @@ class _TvSettingsState extends State<TvSettings> {
           'Sincronizzazione con Google Drive',
           d.enabled
               ? 'Collegato a ${d.email ?? 'Google Drive'}. ${d.status ?? (d.lastSync == null ? '' : 'Ultima sincronizzazione alle ${d.lastSync!.hour}:${d.lastSync!.minute.toString().padLeft(2, '0')}.')}'
-              : 'Usa lo stesso account Google del telefono per avere qui libreria, manga, anime e progressi.',
+              : 'Usa lo stesso account Google del telefono: sulla TV arrivano solo anime, AniList ed estensioni (niente libri, così non occupa spazio).',
           [
             if (!d.enabled)
               TvButton(label: 'Collega Google Drive', icon: Icons.cloud_sync_outlined, primary: true, onSelect: () => d.connect())

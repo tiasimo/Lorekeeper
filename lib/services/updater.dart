@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -39,7 +40,17 @@ class Updater {
     final tag = (j['tag_name'] as String?) ?? '';
     final build = int.tryParse(tag.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
     final assets = (j['assets'] as List?) ?? const [];
-    final apk = assets.cast<Map>().where((a) => (a['name'] as String? ?? '').endsWith('.apk')).firstOrNull;
+    final apks = assets.cast<Map>().where((a) => (a['name'] as String? ?? '').endsWith('.apk')).toList();
+    // l'APK solo per il processore di questo dispositivo (molto più leggero), se c'è
+    Map? apk;
+    try {
+      final abis = Platform.isAndroid ? (await DeviceInfoPlugin().androidInfo).supportedAbis : const <String>[];
+      for (final abi in abis) {
+        apk = apks.where((a) => a['name'] == 'Lorekeeper-$abi.apk').firstOrNull;
+        if (apk != null) break;
+      }
+    } catch (_) {}
+    apk ??= apks.where((a) => a['name'] == 'Lorekeeper.apk').firstOrNull ?? apks.firstOrNull;
     if (apk == null) return null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('update.lastCheck', DateTime.now().millisecondsSinceEpoch);
@@ -62,6 +73,14 @@ class Updater {
   /// Scarica l'APK e apre l'installazione di Android.
   static Future<void> install(UpdateInfo u, void Function(double) onProgress) async {
     final dir = await getTemporaryDirectory();
+    // via i download vecchi: su TV e telefoni con poco spazio fanno la differenza
+    for (final old in dir.listSync().whereType<File>()) {
+      if (p.basename(old.path).startsWith('Lorekeeper-') && old.path.endsWith('.apk')) {
+        try {
+          old.deleteSync();
+        } catch (_) {}
+      }
+    }
     final f = File(p.join(dir.path, 'Lorekeeper-${u.build}.apk'));
     final req = await http.Client().send(http.Request('GET', Uri.parse(u.url)));
     if (req.statusCode != 200) throw Exception('Download non riuscito (${req.statusCode})');
@@ -74,6 +93,12 @@ class Updater {
       if (total > 0) onProgress(got / total);
     }
     await sink.close();
+    if (total > 0 && got < total) {
+      try {
+        f.deleteSync();
+      } catch (_) {}
+      throw Exception('Download incompleto: forse non c\'è abbastanza spazio libero');
+    }
     final r = await OpenFilex.open(f.path, type: 'application/vnd.android.package-archive');
     if (r.type != ResultType.done) throw Exception(r.message);
   }
