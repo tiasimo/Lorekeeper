@@ -60,7 +60,9 @@ String _where(Book book, WikiNote? n) {
 
 class WikiView extends StatefulWidget {
   final Book book;
-  const WikiView({super.key, required this.book});
+  /// Tablet: apre la scheda nel pannello accanto invece che in una nuova pagina.
+  final void Function(WikiEntry e)? onOpen;
+  const WikiView({super.key, required this.book, this.onOpen});
   @override
   State<WikiView> createState() => _WikiViewState();
 }
@@ -115,7 +117,10 @@ class _WikiViewState extends State<WikiView> {
     }
   }
 
-  void _openEntry(WikiEntry e) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => EntryScreen(book: widget.book, entryId: e.id)));
+  void _openEntry(WikiEntry e) {
+    if (widget.onOpen != null) return widget.onOpen!(e);
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => EntryScreen(book: widget.book, entryId: e.id)));
+  }
 
   /// Riga dell'elenco: aspetto diverso per personaggi, luoghi e i tre stili dei termini.
   Widget _tile(Wiki w, WikiEntry e, int limit) {

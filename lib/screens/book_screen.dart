@@ -1,3 +1,6 @@
+import '../widgets/adaptive.dart';
+import 'book_extras.dart';
+import 'world_map.dart';
 import 'package:flutter/material.dart';
 
 import '../models/book.dart';
@@ -27,9 +30,8 @@ class _BookScreenState extends State<BookScreen> {
   @override
   Widget build(BuildContext context) {
     final b = widget.book;
-    return Scaffold(
-      body: TabletSafeArea(
-        child: ListenableBuilder(
+    final wide = isWide(context);
+    final list = ListenableBuilder(
           listenable: LibraryStore.I,
           builder: (context, _) {
             final cur = b.chapters.isEmpty ? 0 : b.lastChapter.clamp(0, b.chapters.length - 1);
@@ -93,16 +95,64 @@ class _BookScreenState extends State<BookScreen> {
                 if (_tab == 0)
                   for (var i = 0; i < b.chapters.length; i++) _chapterRow(b, i, cur)
                 else if (_tab == 1)
-                  WikiView(book: b)
+                  WikiView(book: b, onOpen: wide ? (e) => setState(() => _entry = e.id) : null)
                 else
                   ..._diary(b),
               ],
             );
           },
-        ),
+        );
+    if (!wide) return Scaffold(body: TabletSafeArea(child: list));
+    // Tablet: a sinistra il libro (capitoli, wiki, diario), a destra la scheda o la mappa
+    final entry = _entry;
+    return Scaffold(
+      body: SafeArea(
+        child: Row(children: [
+          SizedBox(width: 460, child: list),
+          Container(width: 1, color: LK.border),
+          Expanded(
+            child: entry != null
+                ? EmbeddedPane(
+                    onClose: () => setState(() => _entry = null),
+                    child: HeroMode(enabled: false, child: EntryScreen(key: ValueKey(entry), book: b, entryId: entry)),
+                  )
+                : Column(children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                      child: Row(children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46), backgroundColor: LK.card, side: BorderSide(color: LK.border)),
+                            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AskBookScreen(book: b))),
+                            icon: Icon(Icons.question_answer_outlined, color: LK.accent, size: 18),
+                            label: Text('Chiedi al libro', style: LK.body(14)),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46), backgroundColor: LK.card, side: BorderSide(color: LK.border)),
+                            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => TimelineScreen(book: b))),
+                            icon: Icon(Icons.timeline, color: LK.accent, size: 18),
+                            label: Text('Cronologia', style: LK.body(14)),
+                          ),
+                        ),
+                      ]),
+                    ),
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: const BorderRadius.only(topLeft: Radius.circular(14)),
+                        child: WorldMapScreen(book: b, embedded: true),
+                      ),
+                    ),
+                  ]),
+          ),
+        ]),
       ),
     );
   }
+
+  String? _entry; // tablet: scheda wiki aperta nel pannello
 
   final _review = TextEditingController();
   bool _reviewLoaded = false;

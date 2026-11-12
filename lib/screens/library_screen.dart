@@ -24,12 +24,15 @@ import '../services/manga_store.dart';
 import 'stats_screen.dart';
 import '../widgets/shelf_backdrop.dart';
 import '../widgets/lantern.dart';
+import '../widgets/adaptive.dart';
+import '../widgets/today_panel.dart';
 import '../widgets/home_window.dart';
 import '../widgets/shelf_cat.dart';
 import '../services/drive_sync.dart';
 import '../widgets/decor_objects.dart';
 import '../widgets/seasonal.dart';
 import '../widgets/shelf_customize.dart';
+import '../widgets/shelf_order.dart';
 import '../services/home_widget_sync.dart';
 import '../services/updater.dart';
 import '../widgets/update_dialog.dart';
@@ -326,6 +329,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
         builder: (context, _) {
           final last = store.lastRead;
           final section = store.app.section;
+          final wide = isWide(context);
+          mangaPaneActive = wide;
           final header = Padding(
                     padding: const EdgeInsets.fromLTRB(20, 18, 8, 0),
                     child: Row(children: [
@@ -365,16 +370,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
               ),
             ),
           );
-          return Stack(children: [
+          final body = Stack(children: [
             if (section == 1)
               SafeArea(
                 child: Column(children: [
                   header,
-                  switcher,
+                  if (!wide) switcher,
                   const SizedBox(height: 8),
                   Expanded(
                     child: Padding(
-                      padding: const EdgeInsets.only(bottom: 86),
+                      padding: EdgeInsets.only(bottom: wide ? 0 : 86),
                       child: MangaSection(view: _mangaView, onExplore: () => setState(() => _mangaView = 1)),
                     ),
                   ),
@@ -383,10 +388,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
             else
             SafeArea(
               child: ListView(
-                padding: const EdgeInsets.only(bottom: 120),
+                padding: EdgeInsets.only(bottom: wide ? 40 : 120),
                 children: [
                   header,
-                  switcher,
+                  if (!wide) switcher,
                   const SizedBox(height: 14),
                   if (store.books.length > 1) _sortBar(),
                   _shelf(),
@@ -408,6 +413,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ],
               ),
             ),
+            if (!wide)
             Positioned(
               left: 0,
               right: 0,
@@ -440,6 +446,52 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     Text('Sistemo i libri sullo scaffale…', style: LK.body(14)),
                   ]),
                 ),
+              ),
+          ]);
+          if (!wide) return body;
+          // Tablet: barra laterale, contenuto e pannello a destra
+          final rail = SideRail(
+            selected: section == 1 ? _mangaView : 0,
+            accentIndex: section == 1 ? null : 2,
+            items: section == 1
+                ? [
+                    NavItem(LKGlyph.library, 'Libreria', () => setState(() => _mangaView = 0)),
+                    NavItem(LKGlyph.search, 'Esplora', () => setState(() => _mangaView = 1)),
+                    NavItem(LKGlyph.settings, 'Impostazioni', () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MangaSettingsScreen()))),
+                  ]
+                : [
+                    NavItem(LKGlyph.library, 'Libreria', () {}),
+                    NavItem(LKGlyph.read, 'Continua', _continue),
+                    NavItem(LKGlyph.add, 'Importa EPUB', _import),
+                    NavItem(LKGlyph.chapters, 'Diario', () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const StatsScreen()))),
+                    NavItem(LKGlyph.settings, 'Impostazioni', () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()))),
+                  ],
+            bottom: VerticalSwitch(
+              labels: const ['Novel', 'Manga'],
+              selected: section,
+              onChanged: (i) {
+                store.app.section = i;
+                store.saveAppPrefs();
+              },
+            ),
+          );
+          return Row(children: [
+            rail,
+            Expanded(child: body),
+            if (section == 0) const TodayPanel(),
+            if (section == 1 && _mangaView == 0)
+              ValueListenableBuilder<SavedManga?>(
+                valueListenable: mangaPaneSelection,
+                builder: (context, m, _) => m == null
+                    ? const SizedBox.shrink()
+                    : Container(
+                        width: 400,
+                        decoration: BoxDecoration(border: Border(left: BorderSide(color: LK.border))),
+                        child: EmbeddedPane(
+                          onClose: () => mangaPaneSelection.value = null,
+                          child: HeroMode(enabled: false, child: MangaDetail(key: ValueKey(m.key), manga: m)),
+                        ),
+                      ),
               ),
           ]);
         },
@@ -691,6 +743,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     ),
                   ),
                   const Spacer(),
+                  if (groups.length > 1)
+                    IconButton(
+                      tooltip: 'Cambia l\'ordine degli scaffali',
+                      visualDensity: VisualDensity.compact,
+                      icon: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(color: LK.paper.withValues(alpha: 0.88), shape: BoxShape.circle),
+                        child: Icon(Icons.swap_vert, size: 17, color: LK.muted),
+                      ),
+                      onPressed: () => showShelfOrder(context),
+                    ),
                   IconButton(
                     tooltip: 'Personalizza lo scaffale',
                     visualDensity: VisualDensity.compact,

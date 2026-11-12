@@ -268,11 +268,20 @@ const _shelfWoods = [Wood('Noce', Color(0xFF6E4B33), Color(0xFF4E3322), Color(0x
 
 final _catFilter = ValueNotifier<String?>(null);
 
+/// Tablet: il manga mostrato nel pannello di dettaglio accanto agli scaffali.
+final mangaPaneSelection = ValueNotifier<SavedManga?>(null);
+bool mangaPaneActive = false;
+
 class _LibraryTab extends StatelessWidget {
   final VoidCallback onExplore;
   const _LibraryTab({required this.onExplore});
 
   void _open(BuildContext context, SavedManga m) {
+    if (mangaPaneActive) {
+      // tablet: il dettaglio si apre nel pannello a destra
+      mangaPaneSelection.value = m;
+      return;
+    }
     Navigator.of(context).push(bookRoute(MangaDetail(manga: m)));
   }
 

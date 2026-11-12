@@ -92,6 +92,7 @@ class AppPrefs {
   String? weatherCity; // città per il meteo della finestra
   double? weatherLat, weatherLon;
   bool cat = true; // il gatto della libreria
+  List<String> shelfOrder = []; // ordine scelto degli scaffali delle novel
 
   Map<String, dynamic> toJson() => {
         'goalMinutes': goalMinutes, 'reminder': reminder, 'reminderHour': reminderHour, 'reminderMinute': reminderMinute,
@@ -111,6 +112,7 @@ class AppPrefs {
         'weatherLat': weatherLat,
         'weatherLon': weatherLon,
         'cat': cat,
+        'shelfOrder': shelfOrder,
       };
 
   void fromJson(Map<String, dynamic> j) {
@@ -138,6 +140,7 @@ class AppPrefs {
     weatherLat = (j['weatherLat'] as num?)?.toDouble();
     weatherLon = (j['weatherLon'] as num?)?.toDouble();
     cat = v('cat', cat);
+    shelfOrder = ((j['shelfOrder'] as List?) ?? const []).whereType<String>().toList();
     final sl = j['shelfLooks'];
     if (sl is Map) {
       shelfLooks = {for (final e in sl.entries) if (e.value is Map) e.key as String: Map<String, dynamic>.from(e.value as Map)};
@@ -469,10 +472,29 @@ class LibraryStore extends ChangeNotifier {
     }
     order.remove(singleShelf);
     if (items.containsKey(singleShelf)) order.add(singleShelf);
+    // ordine scelto a mano: gli scaffali nuovi vanno in fondo (prima dei volumi singoli)
+    final chosen = app.shelfOrder;
+    if (chosen.isNotEmpty) {
+      final natural = [...order];
+      int rank(String k) {
+        final i = chosen.indexOf(k);
+        if (i >= 0) return i;
+        return k == singleShelf ? 1 << 20 : 1000 + natural.indexOf(k);
+      }
+
+      order.sort((a, b) => rank(a).compareTo(rank(b)));
+    }
     return [
       for (final k in order)
         if (items[k]!.any((e) => e.startsWith('b:'))) (k, titles[k], items[k]!)
     ];
+  }
+
+  /// Cambia l'ordine degli scaffali delle novel.
+  void reorderShelves(List<String> keys) {
+    app.shelfOrder = [...keys];
+    saveAppPrefs();
+    notifyListeners();
   }
 
   void addDividerToShelf(String key, String dividerId) {

@@ -25,6 +25,8 @@ import '../widgets/page_turner.dart';
 import '../widgets/quote_card.dart';
 import '../widgets/word_sheet.dart';
 import 'book_extras.dart';
+import 'reader_panel.dart';
+import '../widgets/adaptive.dart';
 import 'world_map.dart';
 import 'wiki_screens.dart';
 
@@ -44,6 +46,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   int _chapter = 0;
   List<Para> _paras = const [];
+  bool _panel = true; // tablet: pannello wiki accanto al testo
   final Map<String, Uint8List> _imgBytes = {};
   final Map<String, Size> _imgSizes = {};
 
@@ -302,6 +305,31 @@ class _ReaderScreenState extends State<ReaderScreen> {
         _fraction = n <= 1 ? 1 : _page / (n - 1);
       }
     }
+  }
+
+  /// Tablet in orizzontale: il pannello della wiki accanto al testo.
+  Widget _withPanel(Widget reader) {
+    if (!isWide(context) || !_panel) return reader;
+    return Row(children: [
+      Expanded(child: reader),
+      ReaderSidePanel(book: book, pageText: _visibleText, onClose: () => setState(() => _panel = false)),
+    ]);
+  }
+
+  /// Testo della pagina (o delle due pagine) che stai leggendo, per il pannello del tablet.
+  String get _visibleText {
+    if (paged && _pages.isNotEmpty) {
+      final out = StringBuffer();
+      for (var i = _page; i < _page + _step && i < _pages.length; i++) {
+        for (final b in _pages[i].blocks) {
+          out.write(' ${_blockPlain(b)}');
+        }
+      }
+      return out.toString();
+    }
+    if (_paras.isEmpty) return '';
+    final c = (_fraction * _paras.length).floor().clamp(0, _paras.length - 1);
+    return _paras.sublist(c, (c + 8).clamp(0, _paras.length)).map((p) => p.segs.map((s) => s.text).join()).join(' ');
   }
 
   String _blockPlain(PageBlock b) => b.segs.map((s) => s.text).join().replaceAll(Hyphen.soft, '');
@@ -1394,7 +1422,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       onKeyEvent: _onKey,
       child: Scaffold(
         backgroundColor: t.bg,
-        body: Stack(children: [
+        body: _withPanel(Stack(children: [
           Positioned.fill(
             child: DecoratedBox(
               decoration: BoxDecoration(
@@ -1451,6 +1479,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
               child: Row(children: [
                 IconButton(icon: LKIcon(LKGlyph.back, color: t.ink), onPressed: () => Navigator.pop(context)),
                 Expanded(child: Text(book.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.display(16, color: t.ink))),
+                if (isWide(context))
+                  IconButton(
+                    tooltip: 'Pannello della wiki',
+                    icon: Icon(_panel ? Icons.view_sidebar : Icons.view_sidebar_outlined, color: _panel ? t.accent : t.ink),
+                    onPressed: () => setState(() => _panel = !_panel),
+                  ),
                 IconButton(tooltip: 'Cerca nel libro', icon: LKIcon(LKGlyph.search, color: t.ink), onPressed: _searchSheet),
                 IconButton(
                   tooltip: 'Segnalibro',
@@ -1546,6 +1580,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
             ),
           ),
         ]),
+        ),
       ),
     );
   }

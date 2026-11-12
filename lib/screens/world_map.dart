@@ -22,7 +22,8 @@ class _Place {
 /// con la nebbia sulle zone non ancora scoperte.
 class WorldMapScreen extends StatefulWidget {
   final Book book;
-  const WorldMapScreen({super.key, required this.book});
+  final bool embedded; // dentro un pannello: senza "Torna"
+  const WorldMapScreen({super.key, required this.book, this.embedded = false});
   @override
   State<WorldMapScreen> createState() => _WorldMapScreenState();
 }
@@ -111,6 +112,7 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
             child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  if (!widget.embedded)
                   InkWell(
                     onTap: () => Navigator.of(context).maybePop(),
                     child: Padding(
@@ -122,7 +124,8 @@ class _WorldMapScreenState extends State<WorldMapScreen> {
                       ]),
                     ),
                   ),
-                  Text('Mappa del mondo', style: LK.display(26, color: const Color(0xFFF3E7CF))),
+                  if (widget.embedded) const SizedBox(height: 8),
+                  Text('Mappa del mondo', style: LK.display(widget.embedded ? 22 : 26, color: const Color(0xFFF3E7CF))),
                 ]),
               ),
               if (places.length > 1)

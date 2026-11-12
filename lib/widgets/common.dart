@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../models/book.dart';
 import '../theme.dart';
+import 'adaptive.dart';
 import 'lk_icons.dart';
 
 export 'lk_icons.dart';
@@ -64,17 +65,20 @@ class BackLink extends StatelessWidget {
   final String? trail;
   const BackLink({super.key, this.trail});
   @override
-  Widget build(BuildContext context) => InkWell(
-        onTap: () => Navigator.of(context).maybePop(),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.chevron_left, size: 18, color: LK.accent),
-            Text('TORNA', style: LK.label(11, color: LK.accent, spacing: 1.4)),
-            if (trail != null) Text('  ·  $trail', style: LK.label(11, color: LK.muted, spacing: 0.4)),
-          ]),
-        ),
-      );
+  Widget build(BuildContext context) {
+    final pane = EmbeddedPane.of(context);
+    return InkWell(
+      onTap: pane?.onClose ?? () => Navigator.of(context).maybePop(),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(pane != null ? Icons.close : Icons.chevron_left, size: 18, color: LK.accent),
+          Text(pane != null ? ' CHIUDI' : 'TORNA', style: LK.label(11, color: LK.accent, spacing: 1.4)),
+          if (trail != null && pane == null) Text('  ·  $trail', style: LK.label(11, color: LK.muted, spacing: 0.4)),
+        ]),
+      ),
+    );
+  }
 }
 
 class Chip2 extends StatelessWidget {
