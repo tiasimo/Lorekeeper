@@ -111,7 +111,13 @@ class _AskBookScreenState extends State<AskBookScreen> {
                         backgroundColor: LK.card,
                         side: BorderSide(color: LK.border),
                         label: Text(i, style: LK.body(13)),
-                        onPressed: () => i.contains('questo') ? _ctl.text = 'Chi è ' : _send(i),
+                        onPressed: () {
+                          if (i.contains('questo')) {
+                            _ctl.text = 'Chi è ';
+                          } else {
+                            _send(i);
+                          }
+                        },
                       ),
                   ]),
                 ],
