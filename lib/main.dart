@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'screens/splash_screen.dart';
 import 'services/ambience.dart';
+import 'services/crash_log.dart';
 import 'services/drive_sync.dart';
 import 'services/library_store.dart';
 import 'theme.dart';
@@ -14,6 +15,22 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
   await detectTv();
+  await CrashLog.init();
+  final flutterError = FlutterError.onError;
+  FlutterError.onError = (details) {
+    CrashLog.add('${details.exceptionAsString()} @ ${details.stack.toString().split('\n').take(4).join(' | ')}');
+    flutterError?.call(details);
+  };
+  WidgetsBinding.instance.platformDispatcher.onError = (e, st) {
+    CrashLog.add('$e @ ${st.toString().split('\n').take(4).join(' | ')}');
+    return true;
+  };
+  if (tvMode) {
+    // la TV ha poca memoria: meno immagini tenute in RAM
+    PaintingBinding.instance.imageCache
+      ..maximumSize = 60
+      ..maximumSizeBytes = 40 << 20;
+  }
   // se una schermata va in errore, mostro il motivo invece di un riquadro grigio
   ErrorWidget.builder = (details) => Container(
         color: const Color(0xFF2A1E1A),
@@ -72,7 +89,12 @@ class _LorekeeperAppState extends State<LorekeeperApp> with WidgetsBindingObserv
     if (state == AppLifecycleState.resumed) Ambience.I.resume();
     if (!DriveSync.I.enabled) return;
     if (state == AppLifecycleState.paused) {
-      DriveSync.I.markDirty().then((_) => DriveSync.I.sync(quiet: true));
+      // sulla TV si segna "da caricare" solo quando cambiano davvero gli anime
+      if (tvMode) {
+        DriveSync.I.sync(quiet: true);
+      } else {
+        DriveSync.I.markDirty().then((_) => DriveSync.I.sync(quiet: true));
+      }
     } else if (state == AppLifecycleState.resumed) {
       DriveSync.I.sync(quiet: true);
     }

@@ -141,7 +141,9 @@ class DriveSync extends ChangeNotifier {
       final remote = await _list("name = '$_dataName'");
       final remoteAt = remote.isEmpty ? 0 : int.tryParse('${remote.first['appProperties']?['at']}') ?? 0;
       final remoteNewer = remoteAt > last;
-      if (remoteNewer && !forcePush && dirty <= remoteAt) {
+      // la prima volta su un dispositivo si scarica sempre (mai sovrascrivere l'altro con dati vuoti)
+      final firstTime = last == 0 && remote.isNotEmpty;
+      if (firstTime || (remoteNewer && !forcePush && dirty <= remoteAt)) {
         _set('Scarico i dati dall\'altro dispositivo…');
         final bytes = await _get(remote.first['id'] as String);
         final f = File(p.join(Directory.systemTemp.path, _dataName));
@@ -156,6 +158,7 @@ class DriveSync extends ChangeNotifier {
         if (extra != null) unawaited(_applyExtras(extra));
         await AnimeStore.I.reload();
         if (!tvMode) await MangaStore.I.reload();
+        if (tvMode) unawaited(_importAniList());
         await prefs.setInt('sync.at', remoteAt);
         await prefs.remove('sync.dirty');
         if (!tvMode) await _pullBooks();
@@ -192,6 +195,18 @@ class DriveSync extends ChangeNotifier {
       busy = false;
       _set(null);
     }
+  }
+
+  /// Sulla TV la videoteca si riempie anche con la lista AniList.
+  Future<void> _importAniList() async {
+    try {
+      for (var i = 0; i < 10 && !AniList.I.loggedIn; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+        await AniList.I.load();
+      }
+      if (!AniList.I.loggedIn) return;
+      AnimeStore.I.importAniList(await AniList.I.myList(type: 'ANIME'));
+    } catch (_) {}
   }
 
   // ---------- estensioni e AniList tra dispositivi ----------

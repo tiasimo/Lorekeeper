@@ -13,6 +13,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../theme.dart';
+import '../tv/tv_mode.dart';
 
 /// Un download in coda.
 class _Job {
@@ -36,7 +37,7 @@ class MangaImages {
   static final _jobs = <String, _Job>{};
   static final _queue = <_Job>[];
   static int _running = 0;
-  static const _maxRunning = 6;
+  static int get _maxRunning => tvMode ? 3 : 6;
   static const _maxCacheBytes = 300 * 1024 * 1024;
   static Directory? _dir;
   static final _client = http.Client();
@@ -198,7 +199,7 @@ class MangaImages {
 
   static void _remember(String url, Uint8List b) {
     _mem[url] = b;
-    while (_mem.length > 30) {
+    while (_mem.length > (tvMode ? 6 : 30)) {
       _mem.remove(_mem.keys.first);
     }
   }

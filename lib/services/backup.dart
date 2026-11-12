@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:archive/archive.dart';
 import 'package:path/path.dart' as p;
@@ -65,6 +66,32 @@ class Backup {
     return out;
   }
 
+  /// Unisce due elenchi di anime (anime.json): non si perde niente da nessuna delle due parti.
+  /// Per lo stesso anime vince la versione usata per ultima; gli episodi visti si sommano.
+  static List<int> mergeAnime(List<int> incoming, File local) {
+    if (!local.existsSync()) return incoming;
+    try {
+      final a = (jsonDecode(utf8.decode(incoming)) as List).cast<Map>();
+      final b = (jsonDecode(local.readAsStringSync()) as List).cast<Map>();
+      String k(Map j) => '${j['mid']}|${j['sid']}|${j['u']}';
+      int t(Map j) => math.max((j['lw'] as num?)?.toInt() ?? 0, (j['add'] as num?)?.toInt() ?? 0);
+      final out = <String, Map>{};
+      for (final j in [...b, ...a]) {
+        final old = out[k(j)];
+        if (old == null) {
+          out[k(j)] = j;
+          continue;
+        }
+        final win = Map.of(t(j) >= t(old) ? j : old);
+        win['w'] = {...((old['w'] as List?) ?? const []), ...((j['w'] as List?) ?? const [])}.toList();
+        out[k(j)] = win;
+      }
+      return utf8.encode(jsonEncode(out.values.toList()));
+    } catch (_) {
+      return incoming;
+    }
+  }
+
   /// Solo alcune parti (la TV prende solo anime e AniList, senza libri né manga).
   static const animeFiles = {'anime.json'};
   static const animePrefs = {'stats.adays', 'stats.aepdays', 'anime.history', 'anilist.user', 'anilist.name', 'anilist.avatar', 'anilist.client', 'manga.imgBridge'};
@@ -80,7 +107,10 @@ class Backup {
     for (final n in files) {
       final f = arch.findFile(n);
       if (f == null) continue;
-      await File(p.join(root, n)).writeAsBytes(f.content as List<int>);
+      final dest = File(p.join(root, n));
+      var bytes = f.content as List<int>;
+      if (n == 'anime.json') bytes = mergeAnime(bytes, dest);
+      await dest.writeAsBytes(bytes);
     }
     final prefs = await SharedPreferences.getInstance();
     final pj = (info['prefs'] as Map?) ?? const {};
@@ -101,7 +131,9 @@ class Backup {
     final out = Archive();
     final root = LibraryStore.I.dataDir;
     final prefs = await SharedPreferences.getInstance();
+    final remoteParts = <String, List<int>>{};
     for (final f in old.files) {
+      if (f.isFile && files.contains(f.name)) remoteParts[f.name] = f.content as List<int>;
       if (!f.isFile || files.contains(f.name)) continue;
       if (f.name == 'backup.json') {
         final info = jsonDecode(utf8.decode(f.content as List<int>)) as Map;
@@ -121,8 +153,12 @@ class Backup {
     }
     for (final n in files) {
       final lf = File(p.join(root, n));
-      if (!lf.existsSync()) continue;
-      final b = lf.readAsBytesSync();
+      final remote = remoteParts[n];
+      // mai togliere dal backup quello che c'era: al massimo si unisce
+      final List<int>? b = n == 'anime.json' && remote != null
+          ? mergeAnime(remote, lf)
+          : (lf.existsSync() ? lf.readAsBytesSync() : remote);
+      if (b == null) continue;
       out.addFile(ArchiveFile(n, b.length, b));
     }
     return ZipEncoder().encode(out)!;
@@ -145,6 +181,7 @@ class Backup {
       if (f.name == 'library.json' && oldRoot != root) {
         bytes = utf8.encode(utf8.decode(bytes).replaceAll(oldRoot, root));
       }
+      if (f.name == 'anime.json') bytes = mergeAnime(bytes, dest);
       await dest.writeAsBytes(bytes);
     }
     final prefs = await SharedPreferences.getInstance();

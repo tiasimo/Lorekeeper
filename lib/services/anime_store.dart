@@ -10,7 +10,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../widgets/manga_image.dart';
 import 'anilist.dart';
+import '../tv/tv_mode.dart';
 import 'cover_colors.dart';
+import 'drive_sync.dart';
 import 'library_store.dart';
 import 'manga_store.dart';
 import 'reminders.dart';
@@ -220,6 +222,7 @@ class AnimeStore extends ChangeNotifier {
     _saveTimer = Timer(const Duration(milliseconds: 600), () async {
       final keep = _all.values.where((a) => a.inLibrary || a.lastWatchedAt != null).map((a) => a.toJson()).toList();
       await _file.writeAsString(jsonEncode(keep));
+      if (tvMode && DriveSync.I.enabled) await DriveSync.I.markDirty();
     });
     notifyListeners();
   }

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../services/anime_store.dart';
 import '../../theme.dart';
 import '../../widgets/manga_image.dart';
+import '../../tv/tv_mode.dart';
 
 /// Stili delle custodie.
 const caseStyles = ['Blu-ray', '4K', 'Steelbook'];
@@ -174,7 +175,7 @@ class _OpeningCaseState extends State<OpeningCase> with TickerProviderStateMixin
     Future.delayed(const Duration(milliseconds: 380), () {
       if (!mounted) return;
       _open.forward();
-      _spin.repeat();
+      if (!tvMode) _spin.repeat();
     });
   }
 

@@ -16,6 +16,7 @@ import 'cover_colors.dart';
 import 'library_store.dart';
 import 'manga_downloads.dart';
 import 'reminders.dart';
+import '../tv/tv_mode.dart';
 
 /// Capitolo di un manga salvato.
 class MChapter {
@@ -448,7 +449,7 @@ class MangaStore extends ChangeNotifier {
             if (m.inLibrary && (m.cover ?? '').isNotEmpty) m.cover!,
         };
     // le copertine della libreria pronte su disco (in coda, dopo il resto)
-    Future.delayed(const Duration(seconds: 4), () {
+    if (!tvMode) Future.delayed(const Duration(seconds: 4), () {
       for (final m in library) {
         if ((m.cover ?? '').isNotEmpty) MangaImages.prefetch([m.cover!], sourceId: m.sourceId, managerId: m.managerId);
       }

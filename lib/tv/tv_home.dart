@@ -82,7 +82,8 @@ class _TvHomeState extends State<TvHome> {
       if (u != null && mounted) showUpdateDialog(context, u);
     });
     DriveSync.I.init();
-    Background.setup();
+    // niente lavori in background sulla TV: un secondo motore raddoppierebbe la memoria
+    Background.stopAll();
     await AnimeStore.I.load();
     await MangaStore.I.load();
     await AniList.I.load();
@@ -248,6 +249,27 @@ class _TvHomeState extends State<TvHome> {
             onPrimary: () => _openAnime(cont.first),
           ),
           if (lib.isEmpty) _empty('La videoteca è vuota: cerca un anime in «Cerca» oppure sincronizza con Google Drive o AniList dal telefono.'),
+          if (lib.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(40, 18, 40, 0),
+              child: Wrap(spacing: 12, runSpacing: 12, children: [
+                if (AniList.I.loggedIn)
+                  TvButton(
+                    label: 'Importa la mia lista AniList',
+                    icon: Icons.download,
+                    primary: true,
+                    onSelect: () async {
+                      try {
+                        final n = AnimeStore.I.importAniList(await AniList.I.myList(type: 'ANIME'));
+                        _toast(n == 0 ? 'Nessun anime nuovo nella lista AniList.' : 'Aggiunti $n anime da AniList.');
+                      } catch (e) {
+                        _toast('AniList non risponde: $e');
+                      }
+                    },
+                  ),
+                if (DriveSync.I.enabled) TvButton(label: 'Sincronizza ora', icon: Icons.sync, onSelect: () => DriveSync.I.sync()),
+              ]),
+            ),
           for (final (name, list) in rows)
             if (list.isNotEmpty)
               _row(
@@ -392,6 +414,11 @@ class _TvHomeState extends State<TvHome> {
         ]);
       },
     );
+  }
+
+  void _toast(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(text)));
   }
 
   // ---------------- pezzi comuni ----------------

@@ -48,6 +48,14 @@ class Background {
     }
   }
 
+  /// Sulla TV: toglie i controlli in background programmati dalle versioni precedenti.
+  static Future<void> stopAll() async {
+    try {
+      await Workmanager().initialize(backgroundDispatcher);
+      await Workmanager().cancelAll();
+    } catch (_) {}
+  }
+
   static Future<void> setEnabled(bool v) async {
     await (await SharedPreferences.getInstance()).setBool('manga.bg', v);
     await setup();

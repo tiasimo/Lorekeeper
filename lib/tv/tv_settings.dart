@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../screens/settings_screen.dart';
 import '../services/ambience.dart';
 import '../services/anilist.dart';
+import '../services/crash_log.dart';
 import '../services/drive_sync.dart';
 import '../services/library_store.dart';
 import '../services/updater.dart';
@@ -129,6 +130,15 @@ class _TvSettingsState extends State<TvSettings> {
                 }
               },
             ),
+          ],
+        ),
+        _section(
+          'Errori recenti',
+          CrashLog.lines.isEmpty
+              ? 'Nessun errore registrato.'
+              : 'Se l\'app si blocca o si chiude, fai una foto a queste righe e mandamela.\n\n${CrashLog.lines.reversed.take(10).join('\n')}',
+          [
+            if (CrashLog.lines.isNotEmpty) TvButton(label: 'Cancella', icon: Icons.delete_outline, onSelect: () => setState(CrashLog.clear)),
           ],
         ),
         _section('Altre impostazioni', 'Lettura, Gemini, wiki, backup e tutto il resto (versione telefono, comandabile con il telecomando).', [
