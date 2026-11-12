@@ -88,7 +88,10 @@ class _AnimeDetailState extends State<AnimeDetail> {
 
   void _play(MChapter e) {
     final s = _source;
-    if (s == null) return _chooseSource();
+    if (s == null) {
+      _chooseSource();
+      return;
+    }
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => AnimePlayer(anime: a, source: s, episode: e)));
   }
 
