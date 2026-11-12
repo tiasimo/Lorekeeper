@@ -22,6 +22,7 @@ import '../widgets/lk_icons.dart';
 import '../widgets/page_turner.dart';
 import '../widgets/quote_card.dart';
 import '../widgets/word_sheet.dart';
+import 'book_extras.dart';
 import 'wiki_screens.dart';
 
 class ReaderScreen extends StatefulWidget {
@@ -1460,10 +1461,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     setState(() => _ui = false);
                     if (v == 'recap') _showRecap();
                     if (v == 'tts') _startTts();
+                    if (v == 'ask') Navigator.of(context).push(MaterialPageRoute(builder: (_) => AskBookScreen(book: book)));
+                    if (v == 'time') Navigator.of(context).push(MaterialPageRoute(builder: (_) => TimelineScreen(book: book)));
                   },
                   itemBuilder: (_) => [
                     PopupMenuItem(value: 'tts', child: Text('Leggi ad alta voce', style: LK.body(14))),
                     PopupMenuItem(value: 'recap', child: Text('Riassunto dei capitoli precedenti', style: LK.body(14))),
+                    PopupMenuItem(value: 'ask', child: Text('Chiedi al libro', style: LK.body(14))),
+                    PopupMenuItem(value: 'time', child: Text('Cronologia degli eventi', style: LK.body(14))),
                   ],
                 ),
               ]),

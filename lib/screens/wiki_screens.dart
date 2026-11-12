@@ -11,6 +11,7 @@ import '../services/wiki.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import '../widgets/wiki_styles.dart';
+import 'book_extras.dart';
 
 const _types = ['personaggio', 'luogo', 'termine'];
 const _typeLabels = ['Personaggi', 'Luoghi', 'Termini'];
@@ -362,6 +363,26 @@ class _WikiViewState extends State<WikiView> {
                 onPressed: _newEntry,
                 icon: Icon(Icons.add, color: LK.accent, size: 18),
                 label: Text('Nuova voce', style: LK.body(13)),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(backgroundColor: LK.card, side: BorderSide(color: LK.border)),
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AskBookScreen(book: b))),
+                icon: Icon(Icons.question_answer_outlined, color: LK.accent, size: 18),
+                label: Text('Chiedi al libro', style: LK.body(13)),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(backgroundColor: LK.card, side: BorderSide(color: LK.border)),
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => TimelineScreen(book: b))),
+                icon: Icon(Icons.timeline, color: LK.accent, size: 18),
+                label: Text('Cronologia', style: LK.body(13)),
               ),
             ),
           ]),

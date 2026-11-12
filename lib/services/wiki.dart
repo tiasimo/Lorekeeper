@@ -166,6 +166,20 @@ class WikiRelation {
   }
 }
 
+/// Un evento della cronologia, emerso in un capitolo.
+class WikiEvent {
+  final int pos;
+  final String bookId;
+  final int chapter;
+  final String text;
+  final List<String> who; // id delle voci coinvolte
+  final bool major;
+  WikiEvent(this.pos, this.bookId, this.chapter, this.text, this.who, this.major);
+  Map<String, dynamic> toJson() => {'p': pos, 'b': bookId, 'c': chapter, 't': text, 'w': who, 'm': major};
+  factory WikiEvent.fromJson(Map j) =>
+      WikiEvent(j['p'] as int, j['b'] as String, j['c'] as int, j['t'] as String, ((j['w'] as List?) ?? const []).cast<String>(), (j['m'] as bool?) ?? false);
+}
+
 class Wiki {
   final String key;
   final String title;
@@ -178,6 +192,7 @@ class Wiki {
   final Set<String> processed = {}; // "idLibro:capitolo"
   final Map<String, String> summaries = {}; // "idLibro:capitolo" → riassunto
   final Set<String> pendingRewrite = {}; // voci con novità da integrare nella scheda completa
+  final List<WikiEvent> events = [];
 
   Wiki(this.key, this.title);
 
@@ -326,6 +341,7 @@ class Wiki {
         'processed': processed.toList(),
         'summaries': summaries,
         'pending': pendingRewrite.toList(),
+        'events': events.map((e) => e.toJson()).toList(),
       };
 
   factory Wiki.fromJson(Map j) {
@@ -340,6 +356,7 @@ class Wiki {
     w.processed.addAll((j['processed'] as List? ?? []).cast<String>());
     w.summaries.addAll(Map<String, String>.from((j['summaries'] as Map?) ?? {}));
     w.pendingRewrite.addAll((j['pending'] as List? ?? []).cast<String>());
+    w.events.addAll((j['events'] as List? ?? []).map((e) => WikiEvent.fromJson(e as Map)));
     return w;
   }
 }
@@ -677,6 +694,65 @@ ${plot.isEmpty ? '(non disponibile)' : plot}''';
     w.linkSnapshots.add(pos);
   }
 
+  /// Risponde a una domanda sul libro usando solo ciò che il lettore ha già letto.
+  Future<String> askBook(Book b, String question, List<(String, String)> history) async {
+    final k = await Secrets.geminiKey();
+    if (k == null || k.isEmpty) throw GeminiError('Aggiungi la chiave API di Gemini in Impostazioni per fare domande al libro.');
+    final w = await forBook(b);
+    final limit = limitFor(b);
+    final entries = w.entries.values.where((e) => e.visibleAt(limit)).toList()..sort((a, c) => a.firstPos.compareTo(c.firstPos));
+    final wiki = StringBuffer();
+    for (final e in entries.take(160)) {
+      final d = e.manual ? (e.manualText ?? '') : e.descriptionAt(limit);
+      final notes = d.isNotEmpty ? d : e.notesAt(limit).map((n) => n.text).join(' ');
+      wiki.writeln('- ${e.name}${e.aliases.isEmpty ? '' : ' (${e.aliases.take(3).join(', ')})'} [${e.type}] ${e.roleAt(limit)}: ${notes.length > 700 ? notes.substring(0, 700) : notes}');
+    }
+    final sums = <(int, String)>[];
+    w.summaries.forEach((key, v) {
+      final i = key.lastIndexOf(':');
+      final book = LibraryStore.I.byId(key.substring(0, i));
+      final ch = int.tryParse(key.substring(i + 1));
+      if (book == null || ch == null) return;
+      final pos = wikiPos(book, ch);
+      if (pos <= limit) sums.add((pos, '${book.id == b.id ? '' : '[${book.title}] '}Cap. ${ch + 1}: $v'));
+    });
+    sums.sort((a, c) => a.$1.compareTo(c.$1));
+    // testo recente fino al punto di lettura
+    var recent = '';
+    final epub = await _open(b);
+    if (epub != null && b.chapters.isNotEmpty) {
+      final buf = StringBuffer();
+      final cur = b.lastChapter.clamp(0, b.chapters.length - 1);
+      for (var i = (cur - 1).clamp(0, cur); i <= cur; i++) {
+        var t = epub.chapterParas(b.chapters[i]).where((p) => p.image == null).map((p) => p.plain.replaceAll(Hyphen.soft, '')).join('\n');
+        if (i == cur && LibraryStore.I.app.spoiler != 'Libro') t = t.substring(0, (t.length * b.lastOffset.clamp(0.0, 1.0)).round());
+        buf.writeln('--- ${b.chapters[i].title} ---\n$t');
+      }
+      recent = buf.toString();
+      if (recent.length > 24000) recent = recent.substring(recent.length - 24000);
+    }
+    final hist = history.map((h) => 'LETTORE: ${h.$1}\nTU: ${h.$2}').join('\n\n');
+    final prompt = '''
+Sei il custode del libro «${b.title}»${b.series != null ? ' (saga «${b.series}»)' : ''}. Rispondi in italiano alla domanda del lettore usando SOLO le informazioni qui sotto, che arrivano fino al punto esatto in cui è arrivato a leggere.
+
+Regole fondamentali:
+- NON fare MAI spoiler: non usare conoscenze esterne sull'opera, non anticipare eventi futuri, non fare ipotesi su cosa succederà.
+- Se la risposta non si trova nelle informazioni, dillo con gentilezza (es. "Finora il libro non lo ha ancora rivelato") senza inventare.
+- Rispondi in modo chiaro e conciso (massimo 6 frasi), citando quando utile il capitolo in cui è successo.
+
+SCHEDE DELLA WIKI:
+${wiki.isEmpty ? '(vuota)' : wiki}
+
+RIASSUNTI DEI CAPITOLI LETTI:
+${sums.isEmpty ? '(nessuno)' : sums.map((s) => s.$2).join('\n')}
+
+ULTIME PAGINE LETTE:
+${recent.isEmpty ? '(non disponibili)' : recent}
+${hist.isEmpty ? '' : '\nCONVERSAZIONE FINORA:\n$hist\n'}
+DOMANDA DEL LETTORE: $question''';
+    return (await Gemini.ask(prompt, maxTokens: 900, temperature: 0.3)).trim();
+  }
+
   Future<Epub?> _open(Book b) async {
     try {
       return Epub.open(await File(b.filePath).readAsBytes());
@@ -703,7 +779,7 @@ ${plot.isEmpty ? '(non disponibile)' : plot}''';
         .join('\n');
     final prompt = '''
 Sei l'archivista della wiki di un lettore. Leggi il capitolo qui sotto (dal libro «${b.title}», capitolo «${b.chapters[chapter].title}») e rispondi SOLO con JSON in questo formato:
-{"summary": "...", "entries": [{"id": "...", "name": "...", "aliases": ["..."], "type": "personaggio|luogo|termine", "role": "...", "note": "...", "kind": "...", "inside": "...", "scene": {"setting": "...", "time": "..."}, "category": "...", "gram": "...", "defs": ["..."], "quote": "...", "facts": {"...": "..."}}]}
+{"summary": "...", "events": [{"text": "...", "who": ["..."], "major": false}], "entries": [{"id": "...", "name": "...", "aliases": ["..."], "type": "personaggio|luogo|termine", "role": "...", "note": "...", "kind": "...", "inside": "...", "scene": {"setting": "...", "time": "..."}, "category": "...", "gram": "...", "defs": ["..."], "quote": "...", "facts": {"...": "..."}}]}
 
 VOCI GIÀ NELLA WIKI (id | nome (altri nomi) | tipo):
 ${known.isEmpty ? '(nessuna)' : known}
@@ -719,6 +795,7 @@ Regole:
 - Solo per i TERMINI: "category" tra magia (incantesimi, poteri, tecniche, concetti magici), organizzazione (gruppi, squadre, gilde, casate, ordini, eserciti, nazioni), oggetto, razza, titolo, concetto; "gram" = riga in stile dizionario (es. "s. m. · ruolo magico"); "defs" = da 1 a 3 significati brevi; "quote" = UNA frase copiata esattamente dal capitolo in cui compare il termine (max 200 caratteri); "facts" solo per le organizzazioni, con chiavi brevi in maiuscolo (es. "BASE": "Città di Xyrus", "CAPO": "...").
 - Ometti i campi che non c'entrano o che il testo non dice.
 - "summary": 2 frasi in italiano su cosa succede nel capitolo.
+- "events": da 1 a 5 fatti importanti del capitolo in ordine, ognuno in una frase breve in italiano al passato prossimo (es. "Arthur ha sconfitto il drago"); "who" = nomi dei personaggi o luoghi coinvolti come li scrivi in "entries"; "major" = true solo per svolte fondamentali della trama (morti, rivelazioni, battaglie decisive, viaggi verso nuovi luoghi).
 
 CAPITOLO:
 $clipped''';
@@ -793,6 +870,17 @@ $clipped''';
         }
       }
       WikiEntry? byRef(String? ref) => ref == null ? null : (w.entries[ref.trim()] ?? w.find(ref));
+      w.events.removeWhere((ev) => ev.bookId == b.id && ev.chapter == chapter);
+      for (final ev in (data['events'] as List? ?? const [])) {
+        if (ev is! Map) continue;
+        final t = (ev['text'] as String?)?.trim() ?? '';
+        if (t.isEmpty || t.length > 300) continue;
+        final who = <String>[
+          for (final n in ((ev['who'] as List?) ?? const []).whereType<String>())
+            if (byRef(n) case final x?) x.id
+        ];
+        w.events.add(WikiEvent(pos, b.id, chapter, t, who.toSet().toList(), ev['major'] == true));
+      }
       for (final r in (data['relations'] as List? ?? const [])) {
         if (r is! Map) continue;
         final a = byRef(r['a'] as String?), c = byRef(r['b'] as String?);

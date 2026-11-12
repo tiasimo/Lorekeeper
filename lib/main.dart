@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'screens/splash_screen.dart';
+import 'services/drive_sync.dart';
 import 'services/library_store.dart';
 import 'theme.dart';
 
@@ -49,6 +50,16 @@ class _LorekeeperAppState extends State<LorekeeperApp> with WidgetsBindingObserv
   }
 
   void _onStore() => _refresh();
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!DriveSync.I.enabled) return;
+    if (state == AppLifecycleState.paused) {
+      DriveSync.I.markDirty().then((_) => DriveSync.I.sync(quiet: true));
+    } else if (state == AppLifecycleState.resumed) {
+      DriveSync.I.sync(quiet: true);
+    }
+  }
 
   @override
   void didChangePlatformBrightness() => _refresh();

@@ -24,6 +24,7 @@ import '../services/manga_store.dart';
 import 'stats_screen.dart';
 import '../widgets/shelf_backdrop.dart';
 import '../widgets/lantern.dart';
+import '../services/drive_sync.dart';
 import '../widgets/decor_objects.dart';
 import '../widgets/seasonal.dart';
 import '../widgets/shelf_customize.dart';
@@ -54,6 +55,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _setupShortcuts();
     // Manga: controllo dei nuovi capitoli in background ogni 3 ore
     Background.setup();
+    DriveSync.I.init();
     // e all'apertura (al massimo ogni 12 ore)
     Future.delayed(const Duration(seconds: 6), () => MangaStore.I.refreshIfDue().catchError((_) => 0));
     // Widget "Continua a leggere": apre direttamente l'ultimo libro.

@@ -7,6 +7,7 @@ import '../services/annotations.dart';
 import '../services/library_store.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import 'wrapped_screen.dart';
 
 const _months = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
 const _short = ['G', 'F', 'M', 'A', 'M', 'G', 'L', 'A', 'S', 'O', 'N', 'D'];
@@ -282,6 +283,13 @@ class _StatsScreenState extends State<StatsScreen> {
             Text('Il tuo diario', style: LK.display(28)),
             const SizedBox(height: 4),
             Text('Serie attuale: ${store.streak} ${store.streak == 1 ? 'giorno' : 'giorni'} di fila · ${store.chaptersRead} capitoli in tutto', style: LK.body(13, color: LK.muted)),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(backgroundColor: LK.card, side: BorderSide(color: LK.border), padding: const EdgeInsets.symmetric(vertical: 12)),
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const WrappedScreen())),
+              icon: Icon(Icons.auto_awesome, color: LK.accent, size: 18),
+              label: Text('Il tuo anno di letture · da condividere', style: LK.body(13.5)),
+            ),
             const SizedBox(height: 14),
             Center(child: Segmented(labels: const ['Mese', 'Anno'], selected: _mode, onChanged: (i) => setState(() => _mode = i))),
             const SizedBox(height: 8),

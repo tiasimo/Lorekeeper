@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../services/backup.dart';
+import '../services/drive_sync.dart';
 import '../services/library_store.dart';
 import '../services/reminders.dart';
 import '../services/secrets.dart';
@@ -365,6 +366,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(width: 6),
               Text(_hasKey ? 'Chiave presente' : 'Nessuna chiave', style: LK.body(13, color: LK.muted)),
             ]),
+            const SizedBox(height: 30),
+            const SectionLabel('Sincronizza tra dispositivi'),
+            ListenableBuilder(
+              listenable: DriveSync.I,
+              builder: (context, _) {
+                final d = DriveSync.I;
+                final when = d.lastSync;
+                return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(
+                    d.enabled
+                        ? 'Collegato a ${d.email ?? 'Google Drive'}. Libreria, progressi, wiki, note, manga e statistiche si sincronizzano da soli quando apri e chiudi l\'app; gli EPUB vengono caricati una volta e scaricati sugli altri dispositivi.'
+                        : 'Usa la cartella privata dell\'app sul tuo Google Drive (invisibile in Drive) per avere la stessa libreria su telefono e tablet.',
+                    style: LK.body(13, color: LK.muted),
+                  ),
+                  if (d.status != null) ...[
+                    const SizedBox(height: 8),
+                    Row(children: [
+                      SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: LK.accent)),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(d.status!, style: LK.body(13))),
+                    ]),
+                  ],
+                  if (d.error != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text(d.error!, style: LK.body(12.5, color: LK.accent))),
+                  if (when != null && d.enabled && d.status == null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text('Ultima sincronizzazione: ${when.day}/${when.month} alle ${when.hour}:${when.minute.toString().padLeft(2, '0')}', style: LK.body(12.5, color: LK.muted)),
+                    ),
+                  const SizedBox(height: 10),
+                  Wrap(spacing: 8, runSpacing: 8, children: [
+                    if (!d.enabled)
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(backgroundColor: LK.accent),
+                        onPressed: d.busy ? null : () => d.connect(),
+                        icon: const Icon(Icons.cloud_sync_outlined),
+                        label: const Text('Collega Google Drive'),
+                      )
+                    else ...[
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(side: BorderSide(color: LK.border), backgroundColor: LK.card),
+                        onPressed: d.busy ? null : () => d.sync(),
+                        icon: Icon(Icons.sync, color: LK.accent),
+                        label: Text('Sincronizza ora', style: LK.body(14)),
+                      ),
+                      OutlinedButton(
+                        style: OutlinedButton.styleFrom(side: BorderSide(color: LK.border), backgroundColor: LK.card),
+                        onPressed: d.busy ? null : () => d.sync(forcePush: true),
+                        child: Text('Carica questo dispositivo', style: LK.body(14)),
+                      ),
+                      TextButton(onPressed: d.busy ? null : d.disconnect, child: Text('Scollega', style: LK.body(14, color: LK.muted))),
+                    ],
+                  ]),
+                ]);
+              },
+            ),
             const SizedBox(height: 30),
             const SectionLabel('Backup'),
             Text(
