@@ -133,7 +133,7 @@ class _AnimeDetailState extends State<AnimeDetail> {
               child: ListView(children: [
                 for (final m in res)
                   ListTile(
-                    leading: ClipRRect(borderRadius: BorderRadius.circular(4), child: SizedBox(width: 40, height: 58, child: m.cover == null ? Container(color: LK.line) : Image.network(m.cover!, fit: BoxFit.cover))),
+                    leading: ClipRRect(borderRadius: BorderRadius.circular(4), child: SizedBox(width: 40, height: 58, child: m.cover == null ? Container(color: LK.line) : Image.network(m.cover!, cacheWidth: 120, fit: BoxFit.cover))),
                     title: Text(m.title, style: LK.display(14)),
                     subtitle: Text([m.format, if (m.year != null) '${m.year}', if (m.episodes != null) '${m.episodes} ep.'].whereType<String>().join(' · '), style: LK.label(9.5, spacing: 0.4)),
                     onTap: () => Navigator.pop(ctx, m),

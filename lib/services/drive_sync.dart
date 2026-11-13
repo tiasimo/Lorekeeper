@@ -143,7 +143,7 @@ class DriveSync extends ChangeNotifier {
       final remoteAt = remote.isEmpty ? 0 : int.tryParse('${remote.first['appProperties']?['at']}') ?? 0;
       final remoteNewer = remoteAt > last;
       if (tvMode) {
-        await _syncTv(prefs, remote, remoteAt, dirty > last || forcePush);
+        await _syncTv(prefs, remote, remoteAt, dirty > last || forcePush, nothingNew: remoteAt <= last && quiet);
       } else if (remoteNewer && !forcePush && dirty <= remoteAt) {
         _set('Scarico i dati dall\'altro dispositivo…');
         final bytes = await _get(remote.first['id'] as String);
@@ -184,11 +184,13 @@ class DriveSync extends ChangeNotifier {
 
   /// TV: scarica sempre il backup del telefono e lo unisce (anime, manga, AniList, estensioni);
   /// poi, se sulla TV è cambiato qualcosa, rimanda indietro solo gli anime.
-  Future<void> _syncTv(SharedPreferences prefs, List<Map<String, dynamic>> remote, int remoteAt, bool push) async {
+  Future<void> _syncTv(SharedPreferences prefs, List<Map<String, dynamic>> remote, int remoteAt, bool push, {bool nothingNew = false}) async {
     if (remote.isEmpty) {
       error = 'Su Drive non c\'è ancora niente: apri l\'app sul telefono, collega Drive e sincronizza.';
       return;
     }
+    // in automatico (aprendo/chiudendo l'app) si scarica solo se il telefono ha caricato qualcosa di nuovo
+    if (nothingNew && !push) return;
     _set('Scarico anime e manga dal telefono…');
     final id = remote.first['id'] as String;
     final bytes = await _get(id);

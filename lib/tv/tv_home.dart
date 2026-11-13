@@ -92,8 +92,12 @@ class _TvHomeState extends State<TvHome> {
       await MangaStore.I.ensureBridge();
     } catch (_) {}
     if (mounted) setState(() => _bridge = true);
-    AnimeStore.I.refreshIfDue();
-    MangaStore.I.refreshIfDue();
+    // sulla TV niente aggiornamento di tutta la libreria all'avvio: le estensioni girano sullo stesso
+    // processo dell'interfaccia e il Chromecast è lento. I manga si aggiornano quando apri la scheda;
+    // gli anime controllano i nuovi episodi dopo qualche minuto, uno alla volta.
+    Future.delayed(const Duration(minutes: 3), () {
+      if (mounted) AnimeStore.I.refreshIfDue();
+    });
   }
 
   void _focusInfo(String title, String sub) => setState(() {

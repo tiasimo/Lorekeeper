@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
+import 'dart:typed_data';
 import 'dart:math' as math;
 
 import 'package:archive/archive.dart';
@@ -68,11 +70,14 @@ class Backup {
 
   /// Unisce due elenchi di anime (anime.json): non si perde niente da nessuna delle due parti.
   /// Per lo stesso anime vince la versione usata per ultima; gli episodi visti si sommano.
-  static List<int> mergeAnime(List<int> incoming, File local) {
-    if (!local.existsSync()) return incoming;
+  static List<int> mergeAnime(List<int> incoming, File local) =>
+      local.existsSync() ? mergeAnimeBytes(incoming, local.readAsBytesSync()) : incoming;
+
+  static List<int> mergeAnimeBytes(List<int> incoming, List<int>? local) {
+    if (local == null) return incoming;
     try {
       final a = (jsonDecode(utf8.decode(incoming)) as List).cast<Map>();
-      final b = (jsonDecode(local.readAsStringSync()) as List).cast<Map>();
+      final b = (jsonDecode(utf8.decode(local)) as List).cast<Map>();
       String k(Map j) => '${j['mid']}|${j['sid']}|${j['u']}';
       int t(Map j) => math.max((j['lw'] as num?)?.toInt() ?? 0, (j['add'] as num?)?.toInt() ?? 0);
       final out = <String, Map>{};
@@ -100,20 +105,21 @@ class Backup {
 
   /// Ripristina solo [files] e le preferenze [prefKeys] da un backup.
   static Future<Set<String>> restoreParts(String zipPath, {required Set<String> files, required Set<String> prefKeys}) async {
-    final arch = ZipDecoder().decodeBytes(await File(zipPath).readAsBytes());
-    final meta = arch.findFile('backup.json');
+    // lo zip si apre in un isolate a parte: sulla TV, sul thread dell'interfaccia, bloccava l'app
+    final want = {...files, 'backup.json'};
+    final parts = await Isolate.run(() => _extract(File(zipPath).readAsBytesSync(), want));
+    final meta = parts['backup.json'];
     if (meta == null) throw Exception('Backup non valido');
-    final info = jsonDecode(utf8.decode(meta.content as List<int>)) as Map;
+    final info = jsonDecode(utf8.decode(meta)) as Map;
     lastExtra = (info['extra'] as Map?)?.cast<String, dynamic>();
     final root = LibraryStore.I.dataDir;
     final found = <String>{};
     for (final n in files) {
-      final f = arch.findFile(n);
-      if (f == null) continue;
+      final b = parts[n];
+      if (b == null) continue;
       found.add(n);
       final dest = File(p.join(root, n));
-      var bytes = f.content as List<int>;
-      if (n == 'anime.json') bytes = mergeAnime(bytes, dest);
+      final bytes = n == 'anime.json' ? mergeAnime(b, dest) : b;
       await dest.writeAsBytes(bytes);
     }
     final prefs = await SharedPreferences.getInstance();
@@ -129,13 +135,34 @@ class Backup {
     return found;
   }
 
+  static Map<String, Uint8List> _extract(Uint8List zip, Set<String> names) {
+    final arch = ZipDecoder().decodeBytes(zip);
+    return {
+      for (final n in names)
+        if (arch.findFile(n) case final f?) n: Uint8List.fromList(f.content as List<int>),
+    };
+  }
+
   /// Prende il backup remoto e ci mette dentro solo le parti locali [files] e [prefKeys]
   /// (tutto il resto, libri e manga del telefono, resta com'è).
   static Future<List<int>> patchParts(List<int> remoteZip, {required Set<String> files, required Set<String> prefKeys}) async {
-    final old = ZipDecoder().decodeBytes(remoteZip);
-    final out = Archive();
     final root = LibraryStore.I.dataDir;
     final prefs = await SharedPreferences.getInstance();
+    final prefVals = <String, Object>{
+      for (final k in prefKeys)
+        if (prefs.get(k) case final v?) k: v,
+    };
+    final local = <String, Uint8List>{
+      for (final n in files)
+        if (File(p.join(root, n)).existsSync()) n: File(p.join(root, n)).readAsBytesSync(),
+    };
+    final zip = Uint8List.fromList(remoteZip);
+    return Isolate.run(() => _patch(zip, files, local, prefVals));
+  }
+
+  static List<int> _patch(Uint8List remoteZip, Set<String> files, Map<String, Uint8List> local, Map<String, Object> prefVals) {
+    final old = ZipDecoder().decodeBytes(remoteZip);
+    final out = Archive();
     final remoteParts = <String, List<int>>{};
     for (final f in old.files) {
       if (f.isFile && files.contains(f.name)) remoteParts[f.name] = f.content as List<int>;
@@ -143,10 +170,7 @@ class Backup {
       if (f.name == 'backup.json') {
         final info = jsonDecode(utf8.decode(f.content as List<int>)) as Map;
         final pj = Map<String, Object?>.from((info['prefs'] as Map?) ?? const {});
-        for (final k in prefKeys) {
-          final v = prefs.get(k);
-          if (v != null) pj[k] = v;
-        }
+        pj.addAll(prefVals);
         info['prefs'] = pj;
         info['at'] = DateTime.now().toIso8601String();
         final b = utf8.encode(jsonEncode(info));
@@ -157,12 +181,9 @@ class Backup {
       out.addFile(ArchiveFile(f.name, bytes.length, bytes));
     }
     for (final n in files) {
-      final lf = File(p.join(root, n));
       final remote = remoteParts[n];
       // mai togliere dal backup quello che c'era: al massimo si unisce
-      final List<int>? b = n == 'anime.json' && remote != null
-          ? mergeAnime(remote, lf)
-          : (lf.existsSync() ? lf.readAsBytesSync() : remote);
+      final List<int>? b = n == 'anime.json' && remote != null ? mergeAnimeBytes(remote, local[n]) : (local[n] ?? remote);
       if (b == null) continue;
       out.addFile(ArchiveFile(n, b.length, b));
     }

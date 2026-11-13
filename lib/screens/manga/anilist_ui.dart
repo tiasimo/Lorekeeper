@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:anymex_extension_runtime_bridge/anymex_extension_runtime_bridge.dart';
 import 'package:flutter/material.dart';
 
@@ -5,6 +6,7 @@ import '../../services/anilist.dart';
 import '../../services/manga_store.dart';
 import '../../theme.dart';
 import '../../tv/tv_keyboard.dart';
+import '../../tv/tv_mode.dart';
 import '../../widgets/common.dart';
 import 'manga_detail.dart';
 
@@ -234,7 +236,7 @@ class _AlSearchState extends State<_AlSearch> {
                 return ListTile(
                   leading: ClipRRect(
                     borderRadius: BorderRadius.circular(4),
-                    child: SizedBox(width: 40, height: 58, child: r.cover == null ? Container(color: LK.line) : Image.network(r.cover!, fit: BoxFit.cover)),
+                    child: SizedBox(width: 40, height: 58, child: r.cover == null ? Container(color: LK.line) : Image.network(r.cover!, cacheWidth: 120, fit: BoxFit.cover)),
                   ),
                   title: Text(r.title, style: LK.display(14.5)),
                   subtitle: Text(
@@ -388,7 +390,7 @@ class _AniListTabState extends State<AniListTab> {
                     contentPadding: const EdgeInsets.fromLTRB(8, 4, 12, 4),
                     leading: ClipRRect(
                       borderRadius: BorderRadius.circular(4),
-                      child: SizedBox(width: 42, height: 60, child: e.media.cover == null ? Container(color: LK.line) : Image.network(e.media.cover!, fit: BoxFit.cover)),
+                      child: SizedBox(width: 42, height: 60, child: e.media.cover == null ? Container(color: LK.line) : Image.network(e.media.cover!, cacheWidth: 120, fit: BoxFit.cover)),
                     ),
                     title: Text(e.media.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: LK.display(14.5)),
                     subtitle: Text(
@@ -489,16 +491,14 @@ class SourceSearchSheetState extends State<SourceSearchSheet> {
       _errors.clear();
       _pending = sources.length;
     });
-    for (final s in sources) {
-      s.methods.search(_q.text.trim(), 1, []).then((p) {
-        if (my != _run || !mounted) return;
-        setState(() => _res.addAll(p.list.take(6).map((d) => (s, d))));
-      }).catchError((Object e) {
-        if (my == _run && mounted) setState(() => _errors[s.name ?? ''] = '$e');
-      }).whenComplete(() {
-        if (my == _run && mounted) setState(() => _pending--);
-      });
-    }
+    searchSources(
+      sources,
+      _q.text.trim(),
+      alive: () => my == _run && mounted,
+      onResult: (s, list) => setState(() => _res.addAll(list.take(tvMode ? 4 : 6).map((d) => (s, d)))),
+      onError: (s, e) => setState(() => _errors[s.name ?? ''] = e is TimeoutException ? 'non risponde' : '$e'),
+      onDone: () => setState(() => _pending--),
+    );
   }
 
   @override
@@ -556,7 +556,7 @@ class SourceSearchSheetState extends State<SourceSearchSheet> {
                 return ListTile(
                   leading: ClipRRect(
                     borderRadius: BorderRadius.circular(4),
-                    child: SizedBox(width: 40, height: 58, child: (d.cover ?? '').isEmpty ? Container(color: LK.line) : Image.network(d.cover!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(color: LK.line))),
+                    child: SizedBox(width: 40, height: 58, child: (d.cover ?? '').isEmpty ? Container(color: LK.line) : Image.network(d.cover!, cacheWidth: 120, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(color: LK.line))),
                   ),
                   title: Text(d.title ?? '', style: LK.display(14)),
                   subtitle: Text('${s.name} · ${(s.lang ?? '').toUpperCase()}', style: LK.label(9.5, spacing: 0.4)),

@@ -818,3 +818,33 @@ class MangaStore extends ChangeNotifier {
     notifyListeners();
   }
 }
+
+
+/// Cerca [q] in tante sorgenti ma poche per volta (sulla TV due): lanciate tutte insieme
+/// bloccano l'interfaccia, perché le estensioni girano nello stesso processo.
+Future<void> searchSources(
+  List<Source> sources,
+  String q, {
+  required bool Function() alive,
+  required void Function(Source s, List<DMedia> list) onResult,
+  void Function(Source s, Object error)? onError,
+  required void Function() onDone,
+}) async {
+  final queue = [...sources];
+  Future<void> worker() async {
+    while (queue.isNotEmpty && alive()) {
+      final s = queue.removeAt(0);
+      try {
+        final r = await s.methods.search(q, 1, []).timeout(const Duration(seconds: 25));
+        if (!alive()) return;
+        onResult(s, r.list);
+      } catch (e) {
+        if (alive()) onError?.call(s, e);
+      }
+      if (alive()) onDone();
+      await Future.delayed(const Duration(milliseconds: 60));
+    }
+  }
+
+  await Future.wait([for (var i = 0; i < (tvMode ? 2 : 4); i++) worker()]);
+}

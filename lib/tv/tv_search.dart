@@ -35,14 +35,15 @@ class _TvSearchState extends State<TvSearch> {
       _res.clear();
       _pending = sources.length;
     });
-    for (final s in sources) {
-      s.methods.search(q, 1, []).then((r) {
-        if (my != _run || !mounted || r.list.isEmpty) return;
-        setState(() => _res.add((s, r.list)));
-      }).catchError((_) {}).whenComplete(() {
-        if (my == _run && mounted) setState(() => _pending--);
-      });
-    }
+    searchSources(
+      sources,
+      q,
+      alive: () => my == _run && mounted,
+      onResult: (s, list) {
+        if (list.isNotEmpty) setState(() => _res.add((s, list)));
+      },
+      onDone: () => setState(() => _pending--),
+    );
   }
 
   void _open(Source s, DMedia d) {

@@ -609,14 +609,15 @@ class _ExploreTabState extends State<SourceExploreTab> {
       _globalRes.clear();
       _globalPending = sources.length;
     });
-    for (final s in sources) {
-      s.methods.search(q, 1, []).then((r) {
-        if (my != _run || !mounted || r.list.isEmpty) return;
-        setState(() => _globalRes.add((s, r.list)));
-      }).catchError((_) {}).whenComplete(() {
-        if (my == _run && mounted) setState(() => _globalPending--);
-      });
-    }
+    searchSources(
+      sources,
+      q,
+      alive: () => my == _run && mounted,
+      onResult: (s, list) {
+        if (list.isNotEmpty) setState(() => _globalRes.add((s, list)));
+      },
+      onDone: () => setState(() => _globalPending--),
+    );
   }
 
   Widget _globalView() {
@@ -977,7 +978,7 @@ class _ExtensionsTabState extends State<ExtensionsPanel> {
             height: 38,
             child: (s.iconUrl ?? '').isEmpty
                 ? Container(color: LK.accentSoft, alignment: Alignment.center, child: Text((s.name ?? '?')[0], style: LK.display(16, color: LK.accentDark)))
-                : Image.network(s.iconUrl!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(color: LK.accentSoft)),
+                : Image.network(s.iconUrl!, cacheWidth: 120, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(color: LK.accentSoft)),
           ),
         ),
         const SizedBox(width: 10),
