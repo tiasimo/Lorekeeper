@@ -11,6 +11,90 @@ import '../manga/anilist_ui.dart';
 import 'anime_player.dart';
 import 'anime_widgets.dart';
 
+/// Nomi delle sezioni della videoteca, per lo stato nella lista.
+const animeListNames = {
+  'CURRENT': 'Sul lettore',
+  'REPEATING': 'Sul lettore',
+  'PAUSED': 'In pausa',
+  'PLANNING': 'Prossimamente',
+  'COMPLETED': 'Collezione',
+  'DROPPED': 'Abbandonato',
+};
+
+/// Dove sta l'anime adesso (per l'etichetta della scheda).
+String animeListLabel(SavedAnime a) {
+  if (!a.inLibrary) return 'Non in lista';
+  return animeListNames[a.listStatus] ?? (a.section == 1 ? 'Prossimamente' : 'Sul lettore');
+}
+
+/// «Aggiungi a…» / «Sposta in…»: Sul lettore, Prossimamente, Collezione, più pausa, abbandona e togli.
+Future<void> showAnimeListSheet(BuildContext context, SavedAnime a) {
+  final store = AnimeStore.I;
+  final linked = a.anilistId != null && AniList.I.loggedIn;
+  final cur = a.inLibrary ? a.section : -1;
+  final paused = a.listStatus == 'PAUSED';
+  var confirm = false;
+  return showModalBottomSheet(
+    context: context,
+    backgroundColor: LK.paper,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (ctx) => StatefulBuilder(builder: (ctx, set) {
+      Future<void> go(String status) async {
+        Navigator.pop(ctx);
+        await store.setStatus(a, status);
+        if (!context.mounted) return;
+        final err = store.syncError != null && linked ? ' (AniList non ha risposto: riprova più tardi)' : '';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Ora è in «${animeListNames[status]}»$err')));
+      }
+
+      Widget choice(String name, String sub, String status, bool here, IconData icon) => ListTile(
+            leading: Icon(icon, color: here ? LK.accent : LK.ink),
+            title: Text(name, style: LK.display(16, color: here ? LK.accent : LK.ink)),
+            subtitle: Text(sub, style: LK.body(12.5, color: LK.muted)),
+            trailing: here ? Icon(Icons.check, color: LK.accent) : null,
+            onTap: here ? () => Navigator.pop(ctx) : () => go(status),
+          );
+      return SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: Text(a.inLibrary ? 'Sposta in…' : 'Aggiungi a…', style: LK.display(19)),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+              child: Text(
+                linked ? 'Si aggiorna anche su AniList.' : (a.anilistId == null ? 'Non è collegato ad AniList: cambia solo qui.' : 'Collega AniList per aggiornare anche la tua lista.'),
+                style: LK.body(12.5, color: LK.muted),
+              ),
+            ),
+            choice('Sul lettore', 'Lo sto guardando', 'CURRENT', cur == 0 && !paused, Icons.play_circle_outline),
+            choice('Prossimamente', 'Lo guarderò più avanti', 'PLANNING', cur == 1, Icons.schedule),
+            choice('Collezione', 'L\'ho già visto tutto', 'COMPLETED', cur == 2, Icons.collections_bookmark_outlined),
+            if (a.inLibrary) ...[
+              const Divider(height: 18),
+              if (!paused) ListTile(leading: Icon(Icons.pause_circle_outline, color: LK.ink), title: Text('Metti in pausa', style: LK.body(15)), onTap: () => go('PAUSED')),
+              if (cur != 3) ListTile(leading: Icon(Icons.block, color: LK.ink), title: Text('Abbandona', style: LK.body(15)), onTap: () => go('DROPPED')),
+              ListTile(
+                leading: Icon(Icons.delete_outline, color: confirm ? LK.accent : LK.muted),
+                title: Text(confirm ? (linked ? 'Tocca di nuovo: lo toglie anche da AniList' : 'Tocca di nuovo per confermare') : 'Togli dalla lista', style: LK.body(15, color: confirm ? LK.accent : LK.ink)),
+                subtitle: confirm && linked ? Text('Su AniList si perdono progressi e voto.', style: LK.body(12, color: LK.muted)) : null,
+                onTap: () async {
+                  if (!confirm) return set(() => confirm = true);
+                  Navigator.pop(ctx);
+                  await store.removeFromList(a);
+                },
+              ),
+            ],
+          ]),
+        ),
+      );
+    }),
+  );
+}
+
 /// La custodia aperta: libretto con la trama, disco, AniList ed episodi.
 class AnimeDetail extends StatefulWidget {
   final SavedAnime anime;
@@ -196,8 +280,8 @@ class _AnimeDetailState extends State<AnimeDetail> {
               const Expanded(child: BackLink(trail: 'Anime')),
               IconButton(tooltip: 'Cambia custodia', onPressed: _caseSheet, icon: Icon(Icons.style_outlined, color: LK.ink)),
               IconButton(
-                tooltip: a.inLibrary ? 'Togli dalla videoteca' : 'Metti in videoteca',
-                onPressed: () => store.toggleLibrary(a),
+                tooltip: a.inLibrary ? 'Sposta in…' : 'Aggiungi a…',
+                onPressed: () => showAnimeListSheet(context, a),
                 icon: Icon(a.inLibrary ? Icons.bookmark : Icons.bookmark_add_outlined, color: a.inLibrary ? LK.accent : LK.ink),
               ),
             ]),
@@ -205,6 +289,13 @@ class _AnimeDetailState extends State<AnimeDetail> {
             OpeningCase(anime: a),
             const SizedBox(height: 14),
             Wrap(spacing: 8, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
+              ActionChip(
+                backgroundColor: a.inLibrary ? LK.accentSoft : LK.navOff,
+                side: BorderSide.none,
+                avatar: Icon(a.inLibrary ? Icons.bookmark : Icons.bookmark_add_outlined, size: 15, color: LK.accentDark),
+                label: Text(animeListLabel(a).toUpperCase(), style: LK.label(9.5, color: LK.accentDark, spacing: 0.6)),
+                onPressed: () => showAnimeListSheet(context, a),
+              ),
               ActionChip(
                 backgroundColor: const Color(0xFFE5EEF7),
                 side: BorderSide.none,
@@ -247,6 +338,22 @@ class _AnimeDetailState extends State<AnimeDetail> {
               ],
             ]),
             if (_error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(_error!, style: LK.body(13, color: LK.accent))),
+            if (a.nextAir != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Text('In onda: l\'episodio ${a.nextAirEp ?? a.watchedUpTo + 1} esce ${_when(a.nextAir!)}.', style: LK.body(13, color: LK.muted)),
+              ),
+            // senza AniList non so se la serie è finita: lo chiedo quando hai visto tutto
+            if (a.anilistId == null && a.inLibrary && a.section == 0 && a.episodes.isNotEmpty && a.firstUnwatched == null)
+              Container(
+                margin: const EdgeInsets.only(top: 12),
+                padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+                decoration: BoxDecoration(color: LK.parchment, borderRadius: BorderRadius.circular(12), border: Border.all(color: LK.parchmentBorder)),
+                child: Row(children: [
+                  Expanded(child: Text('Hai visto tutti gli episodi usciti. Se la serie è finita, mettila in Collezione; se è ancora in onda resta sul lettore.', style: LK.body(13, color: LK.parchmentInk))),
+                  TextButton(onPressed: () => store.setStatus(a, 'COMPLETED'), child: Text('In Collezione', style: LK.body(13.5, color: LK.accent))),
+                ]),
+              ),
             const SizedBox(height: 18),
             Row(children: [
               Expanded(child: Text('EPISODI · ${a.episodes.length}', style: LK.label(10))),
@@ -262,6 +369,18 @@ class _AnimeDetailState extends State<AnimeDetail> {
         ),
       ),
     );
+  }
+
+  /// Quando esce il prossimo episodio, detto in breve.
+  static String _when(DateTime d) {
+    final now = DateTime.now();
+    final days = DateTime(d.year, d.month, d.day).difference(DateTime(now.year, now.month, now.day)).inDays;
+    final hm = '${d.hour}:${d.minute.toString().padLeft(2, '0')}';
+    if (days <= 0) return 'oggi alle $hm';
+    if (days == 1) return 'domani alle $hm';
+    const week = ['lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato', 'domenica'];
+    if (days < 7) return week[d.weekday - 1];
+    return 'il ${d.day}/${d.month}';
   }
 
   /// Data di uscita leggibile (le sorgenti la danno in millisecondi, o 0 se non la sanno).

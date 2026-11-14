@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../services/anilist.dart';
 import '../../services/anime_store.dart';
 import '../../theme.dart';
+import '../../widgets/common.dart';
 import '../../widgets/manga_image.dart';
 import '../manga/manga_home.dart';
 import 'anime_detail.dart';
@@ -64,16 +65,25 @@ class _AnimeSectionState extends State<AnimeSection> {
   }
 }
 
-class _Videoteca extends StatelessWidget {
+/// La videoteca, divisa come sulla TV: Sul lettore, Prossimamente, Collezione.
+class _Videoteca extends StatefulWidget {
   final void Function(SavedAnime) onOpen;
   final VoidCallback onExplore;
   const _Videoteca({required this.onOpen, required this.onExplore});
+  @override
+  State<_Videoteca> createState() => _VideotecaState();
+}
 
-  static const _names = ['In corso', 'Da guardare', 'Visti'];
+class _VideotecaState extends State<_Videoteca> {
+  static int _remembered = 0; // la sezione resta quella scelta finché l'app è aperta
+  int _part = _remembered;
+
+  void Function(SavedAnime) get onOpen => widget.onOpen;
+  VoidCallback get onExplore => widget.onExplore;
 
   void _resume(BuildContext context, SavedAnime a) {
     final s = AnimeStore.I.sourceFor(a);
-    final next = a.next;
+    final next = a.firstUnwatched;
     if (a.pending || s == null || next == null) return onOpen(a);
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => AnimePlayer(anime: a, source: s, episode: next)));
   }
@@ -100,6 +110,15 @@ class _Videoteca extends StatelessWidget {
         builder: (ctx) => SafeArea(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Padding(padding: const EdgeInsets.fromLTRB(20, 0, 20, 8), child: Text(a.title, style: LK.display(18))),
+            ListTile(
+              leading: Icon(Icons.bookmark_outline, color: LK.accent),
+              title: Text('Sposta in…', style: LK.body(15)),
+              subtitle: Text('Ora: ${animeListLabel(a)}', style: LK.body(12.5, color: LK.muted)),
+              onTap: () {
+                Navigator.pop(ctx);
+                showAnimeListSheet(context, a);
+              },
+            ),
             for (final st in caseStyles)
               ListTile(
                 leading: Icon(Icons.style_outlined, color: LK.accent),
@@ -111,14 +130,6 @@ class _Videoteca extends StatelessWidget {
                   Navigator.pop(ctx);
                 },
               ),
-            ListTile(
-              leading: Icon(Icons.delete_outline, color: LK.muted),
-              title: Text('Togli dalla videoteca', style: LK.body(15)),
-              onTap: () {
-                AnimeStore.I.toggleLibrary(a);
-                Navigator.pop(ctx);
-              },
-            ),
           ]),
         ),
       );
@@ -130,16 +141,44 @@ class _Videoteca extends StatelessWidget {
       builder: (context, _) {
         final store = AnimeStore.I;
         final lib = store.library;
-        final groups = [for (var k = 0; k < 3; k++) lib.where((a) => a.shelf == k).toList()];
-        final cont = lib.where((a) => a.lastWatchedAt != null && !a.pending && a.shelf != 2).toList()
-          ..sort((x, y) => y.lastWatchedAt!.compareTo(x.lastWatchedAt!));
         for (final a in lib) {
           store.ensureColor(a);
         }
+        final player = lib.where((a) => a.section == 0).toList()..sort(SavedAnime.compareOnPlayer);
+        final plan = lib.where((a) => a.section == 1).toList()..sort((x, y) => y.addedAt.compareTo(x.addedAt));
+        final done = lib.where((a) => a.section == 2).toList();
+        final dropped = lib.where((a) => a.section == 3).toList();
+        final counts = [player.length, plan.length, done.length + dropped.length];
+        // il primo disco sul lettore che ha un episodio da guardare
+        final cont = player.where((a) => a.listStatus != 'PAUSED' && !a.pending && a.firstUnwatched != null && (a.lastWatchedAt != null || a.watchedUpTo > 0)).firstOrNull;
+        final shelves = switch (_part) {
+          0 => [
+              ('In onda', player.where((a) => a.listStatus != 'PAUSED' && a.mediaStatus == 'RELEASING').toList()),
+              ('In corso', player.where((a) => a.listStatus != 'PAUSED' && a.mediaStatus != 'RELEASING').toList()),
+              ('In pausa', player.where((a) => a.listStatus == 'PAUSED').toList()),
+            ],
+          1 => [('Da vedere', plan)],
+          _ => [('Completati', done), ('Abbandonati', dropped)],
+        };
+        final empty = shelves.every((g) => g.$2.isEmpty);
         return RefreshIndicator(
           color: LK.accent,
           onRefresh: () => store.refreshLibrary(),
           child: ListView(padding: const EdgeInsets.only(bottom: 110), children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+              child: Center(
+                child: FittedBox(
+                  child: Segmented(
+                    labels: [
+                      for (final (i, n) in const ['Sul lettore', 'Prossimamente', 'Collezione'].indexed) counts[i] > 0 ? '$n ${counts[i]}' : n,
+                    ],
+                    selected: _part,
+                    onChanged: (i) => setState(() => _part = _remembered = i),
+                  ),
+                ),
+              ),
+            ),
             if (lib.isEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 30, 20, 0),
@@ -153,10 +192,23 @@ class _Videoteca extends StatelessWidget {
                     OutlinedButton(onPressed: () => _importAniList(context), child: const Text('Importa da AniList')),
                   ]),
                 ]),
+              )
+            else if (empty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(28, 30, 28, 0),
+                child: Text(
+                  switch (_part) {
+                    0 => 'Nessun anime sul lettore. Iniziane uno da Prossimamente o cercalo in Esplora: appena guardi un episodio arriva qui.',
+                    1 => 'Niente in programma. Aggiungi qui gli anime che vuoi guardare più avanti con «Aggiungi a…» nella loro scheda.',
+                    _ => 'La collezione è vuota. Gli anime arrivano qui da soli quando la serie è conclusa e hai visto l\'ultimo episodio.',
+                  },
+                  textAlign: TextAlign.center,
+                  style: LK.body(14, color: LK.muted),
+                ),
               ),
-            if (cont.isNotEmpty) _continue(context, cont.first),
-            for (var k = 0; k < 3; k++)
-              if (groups[k].isNotEmpty) _shelf(context, _names[k], groups[k]),
+            if (_part == 0 && cont != null) _continue(context, cont),
+            for (final (name, list) in shelves)
+              if (list.isNotEmpty) _shelf(context, name, list),
             if (lib.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
@@ -176,7 +228,7 @@ class _Videoteca extends StatelessWidget {
   }
 
   Widget _continue(BuildContext context, SavedAnime a) {
-    final next = a.next;
+    final next = a.firstUnwatched;
     final pos = next == null ? 0 : (a.positions[next.url] ?? 0);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
@@ -268,7 +320,7 @@ class _Videoteca extends StatelessWidget {
                         anime: row[i],
                         width: caseW,
                         tilt: row.length > 1 ? (i == 0 ? 0.14 : (i == row.length - 1 ? -0.14 : 0)) : 0,
-                        badge: row[i].newEpisodes > 0 ? row[i].newEpisodes : (row[i].shelf == 0 && row[i].total > 0 ? row[i].unwatched : null),
+                        badge: row[i].newEpisodes > 0 ? row[i].newEpisodes : (row[i].section == 0 && row[i].total > 0 ? row[i].unwatched : null),
                       ),
                       ),
                     ),

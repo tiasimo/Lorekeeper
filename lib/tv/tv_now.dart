@@ -36,12 +36,7 @@ class _TvNowPlayingState extends State<TvNowPlaying> {
   /// in fondo quelle in pausa.
   List<SavedAnime> _discs() {
     final list = AnimeStore.I.library.where((a) => a.section == 0).toList();
-    int rank(SavedAnime a) => a.listStatus == 'PAUSED' ? 2 : (a.mediaStatus == 'RELEASING' ? 0 : 1);
-    list.sort((x, y) {
-      final r = rank(x).compareTo(rank(y));
-      if (r != 0) return r;
-      return (y.lastWatchedAt ?? y.addedAt).compareTo(x.lastWatchedAt ?? x.addedAt);
-    });
+    list.sort(SavedAnime.compareOnPlayer);
     return list;
   }
 

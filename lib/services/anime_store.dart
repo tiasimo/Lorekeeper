@@ -148,6 +148,15 @@ class SavedAnime {
     return o.where((c) => !isWatched(c)).firstOrNull;
   }
 
+  /// Ordine di «Sul lettore»: prima le serie in onda, poi le altre, in fondo quelle in pausa
+  /// (dentro ogni gruppo dall'ultimo guardato).
+  static int compareOnPlayer(SavedAnime x, SavedAnime y) {
+    int rank(SavedAnime a) => a.listStatus == 'PAUSED' ? 2 : (a.mediaStatus == 'RELEASING' ? 0 : 1);
+    final r = rank(x).compareTo(rank(y));
+    if (r != 0) return r;
+    return (y.lastWatchedAt ?? y.addedAt).compareTo(x.lastWatchedAt ?? x.addedAt);
+  }
+
   /// Quando esce il prossimo episodio (null se non è in onda o la data è passata).
   DateTime? get nextAir {
     if (nextAirAt == null) return null;
@@ -312,15 +321,13 @@ class AnimeStore extends ChangeNotifier {
 
   /// Salva il punto in cui sei arrivato in un episodio.
   void setPosition(SavedAnime a, MChapter c, int seconds) {
-    if (tvMode) {
-      // sulla TV iniziare un episodio mette il disco «sul lettore»
-      if (!a.inLibrary) {
-        a.inLibrary = true;
-        a.addedAt = DateTime.now();
-      }
-      final st = a.listStatus;
-      if (st == 'PLANNING' || st == 'PAUSED' || st == 'DROPPED' || (st == null && a.anilistId != null)) setStatus(a, 'CURRENT');
+    // iniziare un episodio mette l'anime «sul lettore» (anche se veniva da Prossimamente o dalla Collezione)
+    if (!a.inLibrary) {
+      a.inLibrary = true;
+      a.addedAt = DateTime.now();
     }
+    final st = a.listStatus;
+    if (st == 'PLANNING' || st == 'PAUSED' || st == 'DROPPED' || (st == null && a.anilistId != null)) setStatus(a, 'CURRENT');
     a.positions[c.url] = seconds;
     a.lastEpisode = c.url;
     a.lastWatchedAt = DateTime.now();
@@ -359,7 +366,8 @@ class AnimeStore extends ChangeNotifier {
     var status = a.alStatus;
     if (status == null || status == 'PLANNING' || status == 'PAUSED' || status == 'DROPPED') status = 'CURRENT';
     final total = a.alTotal;
-    if (total != null && total > 0 && ep >= total && status != 'REPEATING') status = 'COMPLETED';
+    // in Collezione solo a serie conclusa: finché è in onda resta sul lettore
+    if (total != null && total > 0 && ep >= total && status != 'REPEATING' && a.mediaStatus != 'RELEASING') status = 'COMPLETED';
     try {
       await al.save(id, progress: ep, status: status);
       a.alProgress = ep;
@@ -458,8 +466,7 @@ class AnimeStore extends ChangeNotifier {
         _applyMedia(have, e.media);
         continue;
       }
-      // sulla TV anche gli abbandonati hanno il loro ripiano
-      if (e.status == 'DROPPED' && !tvMode) continue;
+      // anche gli abbandonati hanno il loro ripiano (in Collezione)
       final key = 'anilist||${e.media.id}';
       final a = _all[key] ??= SavedAnime(sourceId: '', managerId: 'anilist', sourceName: 'AniList', url: '${e.media.id}', title: e.media.title, cover: e.media.cover);
       a
