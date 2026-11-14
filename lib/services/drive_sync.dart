@@ -191,16 +191,15 @@ class DriveSync extends ChangeNotifier {
     }
     // in automatico (aprendo/chiudendo l'app) si scarica solo se il telefono ha caricato qualcosa di nuovo
     if (nothingNew && !push) return;
-    _set('Scarico anime e manga dal telefono…');
+    _set('Scarico gli anime dal telefono…');
     final id = remote.first['id'] as String;
     final bytes = await _get(id);
     final f = File(p.join(Directory.systemTemp.path, _dataName));
     await f.writeAsBytes(bytes);
-    final found = await Backup.restoreParts(f.path, files: Backup.tvFiles, prefKeys: Backup.tvPrefs);
+    final found = await Backup.restoreParts(f.path, files: Backup.animeFiles, prefKeys: Backup.animePrefs);
     final extra = Backup.lastExtra;
     if (extra != null) unawaited(_applyExtras(extra));
     await AnimeStore.I.reload();
-    await MangaStore.I.reload();
     await _importAniList();
     var at = remoteAt;
     if (push) {
@@ -212,7 +211,7 @@ class DriveSync extends ChangeNotifier {
     await prefs.setInt('sync.at', at);
     await prefs.remove('sync.dirty');
     final d = DateTime.fromMillisecondsSinceEpoch(remoteAt);
-    tvSummary = '${AnimeStore.I.library.length} anime e ${MangaStore.I.library.length} manga sulla TV. '
+    tvSummary = '${AnimeStore.I.library.length} anime sulla TV. '
         'Backup del telefono del ${d.day}/${d.month} alle ${d.hour}:${d.minute.toString().padLeft(2, '0')}'
         '${found.contains('anime.json') ? '' : ' (senza anime: apri l\'app sul telefono così li ricarica)'}.';
   }
@@ -273,6 +272,7 @@ class DriveSync extends ChangeNotifier {
       final ext = st.ext;
       var added = false;
       for (final r in repos) {
+        if (tvMode && r['t'] != 'anime') continue; // sulla TV solo le fonti anime
         final type = _types[r['t']];
         final mid = r['mid'] as String?, url = r['url'] as String?;
         if (type == null || mid == null || url == null) continue;
@@ -282,7 +282,7 @@ class DriveSync extends ChangeNotifier {
           added = true;
         } catch (_) {}
       }
-      if (inst.any((e) => e['mid'] == 'aniyomi') && !st.mihonReady) {
+      if (inst.any((e) => e['mid'] == 'aniyomi' && (!tvMode || e['t'] == 'anime')) && !st.mihonReady) {
         try {
           await st.setupMihon();
         } catch (_) {}
@@ -290,6 +290,7 @@ class DriveSync extends ChangeNotifier {
       if (added) await ext.refreshExtensions(refreshAvailableSource: true);
       for (final e in inst) {
         final anime = e['t'] == 'anime';
+        if (tvMode && !anime) continue;
         final have = (anime ? ext.installedAnimeExtensions : ext.installedMangaExtensions).any((s) => s.id == e['id'] && '${s.managerId ?? s.extensionType}' == e['mid']);
         if (have) continue;
         final avail = (anime ? ext.availableAnimeExtensions : ext.availableMangaExtensions).where((s) => s.id == e['id'] && '${s.managerId ?? s.extensionType}' == e['mid']).toList();

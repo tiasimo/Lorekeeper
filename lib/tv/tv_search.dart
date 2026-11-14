@@ -6,24 +6,29 @@ import '../services/manga_store.dart';
 import '../widgets/manga_image.dart';
 import 'tv_anime_detail.dart';
 import 'tv_keyboard.dart';
-import 'tv_manga_detail.dart';
 import 'tv_widgets.dart';
 
-/// Ricerca sulla TV: scrivi un titolo e cerca in tutte le sorgenti anime o manga installate.
+/// Ricerca sulla TV: scrivi un titolo e lo cerca in tutte le fonti anime installate.
+/// Aprendo un risultato arrivi al menu del disco, dove c'è «Aggiungi a…».
 class TvSearch extends StatefulWidget {
-  final ValueChanged<(String, String)>? onFocusInfo;
-  const TvSearch({super.key, this.onFocusInfo});
+  const TvSearch({super.key});
   @override
   State<TvSearch> createState() => _TvSearchState();
 }
 
 class _TvSearchState extends State<TvSearch> {
   final _q = TextEditingController();
-  bool _anime = true;
   final List<(Source, List<DMedia>)> _res = [];
   int _pending = 0, _run = 0;
 
-  List<Source> get _sources => (_anime ? MangaStore.I.ext.installedAnimeExtensions : MangaStore.I.ext.installedMangaExtensions).toList();
+  List<Source> get _sources => MangaStore.I.ext.installedAnimeExtensions.toList();
+
+  @override
+  void dispose() {
+    _run++;
+    _q.dispose();
+    super.dispose();
+  }
 
   Future<void> _search() async {
     final q = _q.text.trim();
@@ -40,97 +45,86 @@ class _TvSearchState extends State<TvSearch> {
       q,
       alive: () => my == _run && mounted,
       onResult: (s, list) {
-        if (list.isNotEmpty) setState(() => _res.add((s, list)));
+        if (list.isNotEmpty) setState(() => _res.add((s, list.take(12).toList())));
       },
       onDone: () => setState(() => _pending--),
     );
   }
 
-  void _open(Source s, DMedia d) {
-    if (_anime) {
-      Navigator.of(context).push(MaterialPageRoute(builder: (_) => TvAnimeDetail(anime: AnimeStore.I.entry(s, d))));
-    } else {
-      Navigator.of(context).push(MaterialPageRoute(builder: (_) => TvMangaDetail(manga: MangaStore.I.entry(s, d))));
-    }
-  }
+  void _open(Source s, DMedia d) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => TvAnimeDetail(anime: AnimeStore.I.entry(s, d))));
 
   @override
   Widget build(BuildContext context) {
-    return ListView(padding: const EdgeInsets.only(bottom: 20), children: [
+    return ListView(padding: const EdgeInsets.only(bottom: 24), children: [
       Padding(
-        padding: const EdgeInsets.fromLTRB(40, 16, 40, 8),
+        padding: const EdgeInsets.fromLTRB(48, 14, 48, 10),
         child: Row(children: [
           Expanded(
             child: TvTextField(
               controller: _q,
-              hint: 'Cerca un titolo',
-              style: tvDisplay(22),
+              hint: 'Cerca un anime',
+              style: tvBody(20, color: TV.ink),
               onSubmitted: (_) => _search(),
               decoration: InputDecoration(
                 hintText: 'Premi OK per scrivere il titolo',
-                hintStyle: tvBody(20, color: TV.muted),
-                prefixIcon: const Icon(Icons.search, color: TV.muted, size: 28),
+                hintStyle: tvBody(18, color: TV.muted),
+                prefixIcon: const Icon(Icons.search, color: TV.muted, size: 26),
                 filled: true,
-                fillColor: const Color(0x14F3E7CF),
-                contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
-                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(color: TV.accent, width: 3)),
+                fillColor: TV.panel,
+                contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 18),
+                border: const OutlineInputBorder(borderRadius: BorderRadius.zero, borderSide: BorderSide.none),
+                focusedBorder: const OutlineInputBorder(borderRadius: BorderRadius.zero, borderSide: BorderSide(color: TV.accent, width: 3)),
               ),
             ),
           ),
-          const SizedBox(width: 16),
-          TvButton(label: 'Anime', primary: _anime, onSelect: () => setState(() => _anime = true)),
-          const SizedBox(width: 10),
-          TvButton(label: 'Manga', primary: !_anime, onSelect: () => setState(() => _anime = false)),
-          const SizedBox(width: 10),
+          const SizedBox(width: 14),
           TvButton(label: 'Cerca', icon: Icons.search, onSelect: _search),
         ]),
       ),
-      if (_pending > 0) const Padding(padding: EdgeInsets.symmetric(horizontal: 40), child: LinearProgressIndicator(color: TV.accent, backgroundColor: Color(0x22F3E7CF))),
+      if (_pending > 0) const Padding(padding: EdgeInsets.symmetric(horizontal: 48), child: LinearProgressIndicator(color: TV.accent, backgroundColor: TV.panelHi, minHeight: 3)),
       if (_sources.isEmpty)
         Padding(
-          padding: const EdgeInsets.fromLTRB(40, 40, 40, 0),
-          child: Text('Nessuna sorgente ${_anime ? 'anime' : 'manga'} installata: aggiungila dalla scheda Estensioni.', style: tvBody(18, color: TV.muted)),
+          padding: const EdgeInsets.fromLTRB(48, 40, 48, 0),
+          child: Text('Nessuna fonte anime installata: aggiungila da Impostazioni › Estensioni, oppure sincronizza con Google Drive per avere quelle del telefono.', style: tvBody(17)),
         )
-      else if (_res.isEmpty && _pending == 0 && _q.text.trim().isNotEmpty)
-        Padding(padding: const EdgeInsets.fromLTRB(40, 40, 40, 0), child: Text('Nessuna sorgente l\'ha trovato.', style: tvBody(18, color: TV.muted))),
+      else if (_res.isEmpty && _pending == 0)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(48, 40, 48, 0),
+          child: Text(_q.text.trim().isEmpty ? 'Scrivi un titolo: lo cerco in tutte le fonti installate, due alla volta.' : 'Nessuna fonte l\'ha trovato.', style: tvBody(17)),
+        ),
       for (final (s, list) in _res)
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(40, 20, 40, 4),
-            child: Text('${s.name} · ${(s.lang ?? '').toUpperCase()}', style: tvLabel(13, color: TV.peach, spacing: 1)),
+            padding: const EdgeInsets.fromLTRB(48, 18, 48, 0),
+            child: Text('${s.name ?? ''} · ${(s.lang ?? '').toUpperCase()}'.toUpperCase(), style: tvLabel(14, color: TV.peach, spacing: 2)),
           ),
           SizedBox(
-            height: 250,
-            child: FocusTraversalGroup(
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                clipBehavior: Clip.none,
-                padding: const EdgeInsets.fromLTRB(40, 14, 40, 14),
-                itemCount: list.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 22),
-                itemBuilder: (_, i) {
-                  final d = list[i];
-                  return TvFocus(
-                    scale: 1.1,
-                    radius: BorderRadius.circular(8),
-                    onFocus: (f) {
-                      if (f) widget.onFocusInfo?.call((d.title ?? '', s.name ?? ''));
-                    },
-                    onSelect: () => _open(s, d),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
+            height: 262,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.fromLTRB(48, 14, 48, 6),
+              itemCount: list.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 22),
+              itemBuilder: (_, i) {
+                final d = list[i];
+                return SizedBox(
+                  width: 136,
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    TvFocus(
+                      onSelect: () => _open(s, d),
                       child: SizedBox(
-                        width: 150,
-                        height: 214,
+                        width: 136,
+                        height: 193,
                         child: (d.cover ?? '').isEmpty
-                            ? Container(color: const Color(0xFF3A2E28), alignment: Alignment.center, padding: const EdgeInsets.all(8), child: Text(d.title ?? '', textAlign: TextAlign.center, style: tvDisplay(14)))
+                            ? Container(color: TV.panelHi, alignment: Alignment.bottomLeft, padding: const EdgeInsets.all(8), child: Text((d.title ?? '').toUpperCase(), maxLines: 4, overflow: TextOverflow.ellipsis, style: tvDisplay(14, weight: FontWeight.w700)))
                             : MangaImage(d.cover!, sourceId: s.id, managerId: s.managerId ?? s.extensionType),
                       ),
                     ),
-                  );
-                },
-              ),
+                    const SizedBox(height: 10),
+                    Text(d.title ?? '', maxLines: 2, overflow: TextOverflow.ellipsis, style: tvBody(12.5, color: TV.ink, weight: FontWeight.w600)),
+                  ]),
+                );
+              },
             ),
           ),
         ]),

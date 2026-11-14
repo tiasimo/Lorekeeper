@@ -21,8 +21,9 @@ class AlMedia {
   final String title;
   final String? english, romaji, cover;
   final int? chapters, year, episodes, idMal;
-  final String? format, status;
-  AlMedia({required this.id, required this.title, this.english, this.romaji, this.cover, this.chapters, this.year, this.format, this.status, this.episodes, this.idMal});
+  final String? format, status, banner;
+  final int? nextAiringAt, nextAiringEp; // prossimo episodio in onda (secondi dall'epoca, numero)
+  AlMedia({required this.id, required this.title, this.english, this.romaji, this.cover, this.chapters, this.year, this.format, this.status, this.episodes, this.idMal, this.banner, this.nextAiringAt, this.nextAiringEp});
 
   factory AlMedia.fromJson(Map j) {
     final t = (j['title'] as Map?) ?? const {};
@@ -38,6 +39,9 @@ class AlMedia {
       year: (j['startDate'] as Map?)?['year'] as int?,
       format: j['format'] as String?,
       status: j['status'] as String?,
+      banner: j['bannerImage'] as String?,
+      nextAiringAt: (j['nextAiringEpisode'] as Map?)?['airingAt'] as int?,
+      nextAiringEp: (j['nextAiringEpisode'] as Map?)?['episode'] as int?,
     );
   }
 
@@ -163,7 +167,7 @@ class AniList extends ChangeNotifier {
     return j['data'] as Map;
   }
 
-  static const _mediaFields = 'id title { userPreferred romaji english } coverImage { large medium } chapters episodes idMal format status startDate { year }';
+  static const _mediaFields = 'id title { userPreferred romaji english } coverImage { large medium } chapters episodes idMal format status startDate { year } bannerImage nextAiringEpisode { airingAt episode }';
 
   Future<List<AlMedia>> search(String text, {String type = 'MANGA'}) async {
     final d = await _query('query (\$s: String) { Page(perPage: 15) { media(search: \$s, type: $type, sort: SEARCH_MATCH) { $_mediaFields } } }', {'s': text});
@@ -195,6 +199,14 @@ class AniList extends ChangeNotifier {
     final e = m['mediaListEntry'] as Map?;
     if (e == null) return null;
     return AlEntry(AlMedia.fromJson(m), e['status'] as String? ?? 'PLANNING', e['progress'] as int? ?? 0, ((e['score'] as num?) ?? 0).toDouble());
+  }
+
+  /// Toglie un titolo dalla tua lista AniList.
+  Future<void> remove(int mediaId) async {
+    final d = await _query('query (\$id: Int) { Media(id: \$id) { mediaListEntry { id } } }', {'id': mediaId});
+    final e = (d['Media'] as Map)['mediaListEntry'] as Map?;
+    if (e == null) return;
+    await _query('mutation (\$id: Int) { DeleteMediaListEntry(id: \$id) { deleted } }', {'id': e['id']});
   }
 
   Future<void> save(int mediaId, {String? status, int? progress, double? score}) async {

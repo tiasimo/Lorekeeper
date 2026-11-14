@@ -99,8 +99,6 @@ class Backup {
 
   /// Solo alcune parti (la TV prende solo anime e AniList, senza libri né manga).
   static const animeFiles = {'anime.json'};
-  static const tvFiles = {'anime.json', 'manga.json', 'manga_history.json', 'manga_updates.json'};
-  static const tvPrefs = {...animePrefs, 'stats.mdays', 'stats.mchdays', 'manga.reader', 'manga.categories'};
   static const animePrefs = {'stats.adays', 'stats.aepdays', 'anime.history', 'anilist.user', 'anilist.name', 'anilist.avatar', 'anilist.client', 'manga.imgBridge'};
 
   /// Ripristina solo [files] e le preferenze [prefKeys] da un backup.

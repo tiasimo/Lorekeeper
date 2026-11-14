@@ -38,6 +38,10 @@ class SavedAnime {
   int alProgress;
   double alScore;
   int? alTotal;
+  String? banner; // immagine larga di AniList
+  String? mediaStatus; // stato della serie su AniList: FINISHED, RELEASING…
+  int? nextAirAt, nextAirEp; // prossimo episodio in onda (secondi dall'epoca, numero)
+  String? localStatus; // stato scelto a mano quando AniList non c'è (stessi valori di alStatus)
   // colore della custodia (preso dalla copertina)
   int? caseColor;
   String caseStyle = 'Blu-ray'; // Blu-ray | 4K | Steelbook
@@ -115,6 +119,42 @@ class SavedAnime {
     return o.where((c) => !isWatched(c)).firstOrNull ?? o.last;
   }
 
+  /// Lo stato nella lista: quello di AniList, altrimenti quello scelto a mano.
+  String? get listStatus => alStatus ?? localStatus;
+
+  /// Sezione sulla TV: 0 sul lettore, 1 prossimamente, 2 collezione, 3 abbandonati.
+  /// Senza uno stato esplicito un anime non finisce mai da solo in collezione.
+  int get section {
+    switch (listStatus) {
+      case 'COMPLETED':
+        return 2;
+      case 'DROPPED':
+        return 3;
+      case 'PLANNING':
+        return 1;
+      case 'CURRENT':
+      case 'REPEATING':
+      case 'PAUSED':
+        return 0;
+    }
+    return watchedUpTo == 0 && lastWatchedAt == null ? 1 : 0;
+  }
+
+  /// Il primo episodio non ancora visto (null se li hai visti tutti).
+  MChapter? get firstUnwatched {
+    final o = ordered;
+    final cur = o.where((c) => c.url == lastEpisode).firstOrNull;
+    if (cur != null && !isWatched(cur)) return cur;
+    return o.where((c) => !isWatched(c)).firstOrNull;
+  }
+
+  /// Quando esce il prossimo episodio (null se non è in onda o la data è passata).
+  DateTime? get nextAir {
+    if (nextAirAt == null) return null;
+    final d = DateTime.fromMillisecondsSinceEpoch(nextAirAt! * 1000);
+    return d.isAfter(DateTime.now()) ? d : null;
+  }
+
   /// 0 in corso, 1 da guardare, 2 completati (lo stato AniList ha la precedenza).
   int get shelf {
     switch (alStatus) {
@@ -136,6 +176,8 @@ class SavedAnime {
         'e': episodes.map((e) => e.toJson()).toList(), 'w': watched.toList(), 'pos': positions, 'le': lastEpisode, 'ne': newEpisodes,
         'lib': inLibrary, 'add': addedAt.millisecondsSinceEpoch, 'lw': lastWatchedAt?.millisecondsSinceEpoch,
         'al': anilistId, 'mal': malId, 'als': alStatus, 'alp': alProgress, 'alsc': alScore, 'alt': alTotal, 'cc': caseColor, 'cs': caseStyle,
+        if (banner != null) 'bn': banner, if (mediaStatus != null) 'alms': mediaStatus, if (nextAirAt != null) 'nxa': nextAirAt, if (nextAirEp != null) 'nxe': nextAirEp,
+        if (localStatus != null) 'ls': localStatus,
       };
 
   factory SavedAnime.fromJson(Map j) => SavedAnime(
@@ -163,7 +205,12 @@ class SavedAnime {
       )
         ..newEpisodes = j['ne'] as int? ?? 0
         ..caseColor = j['cc'] as int?
-        ..caseStyle = j['cs'] as String? ?? 'Blu-ray';
+        ..caseStyle = j['cs'] as String? ?? 'Blu-ray'
+        ..banner = j['bn'] as String?
+        ..mediaStatus = j['alms'] as String?
+        ..nextAirAt = j['nxa'] as int?
+        ..nextAirEp = j['nxe'] as int?
+        ..localStatus = j['ls'] as String?;
 }
 
 /// Sezione Anime: estensioni anime (Mangayomi e Aniyomi) con lo stesso motore dei manga,
@@ -265,6 +312,15 @@ class AnimeStore extends ChangeNotifier {
 
   /// Salva il punto in cui sei arrivato in un episodio.
   void setPosition(SavedAnime a, MChapter c, int seconds) {
+    if (tvMode) {
+      // sulla TV iniziare un episodio mette il disco «sul lettore»
+      if (!a.inLibrary) {
+        a.inLibrary = true;
+        a.addedAt = DateTime.now();
+      }
+      final st = a.listStatus;
+      if (st == 'PLANNING' || st == 'PAUSED' || st == 'DROPPED' || (st == null && a.anilistId != null)) setStatus(a, 'CURRENT');
+    }
     a.positions[c.url] = seconds;
     a.lastEpisode = c.url;
     a.lastWatchedAt = DateTime.now();
@@ -308,6 +364,7 @@ class AnimeStore extends ChangeNotifier {
       await al.save(id, progress: ep, status: status);
       a.alProgress = ep;
       a.alStatus = status;
+      a.localStatus = status;
       save();
     } catch (e) {
       syncError = '$e';
@@ -315,11 +372,59 @@ class AnimeStore extends ChangeNotifier {
     }
   }
 
+  /// Sposta un anime in una sezione (CURRENT, PLANNING, COMPLETED, PAUSED, DROPPED) e lo dice ad AniList.
+  Future<void> setStatus(SavedAnime a, String status) async {
+    if (!a.inLibrary) {
+      a.inLibrary = true;
+      a.addedAt = DateTime.now();
+    }
+    a.localStatus = status;
+    final id = a.anilistId;
+    if (id != null) a.alStatus = status;
+    save();
+    if (id == null || !AniList.I.loggedIn) return;
+    try {
+      await AniList.I.save(id, status: status);
+      syncError = null;
+    } catch (e) {
+      syncError = '$e';
+      notifyListeners();
+    }
+  }
+
+  /// Toglie un anime dalla lista (anche da quella di AniList, se è collegato).
+  Future<void> removeFromList(SavedAnime a) async {
+    a.inLibrary = false;
+    a.localStatus = null;
+    final id = a.anilistId;
+    if (id != null && AniList.I.loggedIn) {
+      try {
+        await AniList.I.remove(id);
+        a.alStatus = null;
+        a.alProgress = 0;
+      } catch (e) {
+        syncError = '$e';
+      }
+    }
+    save();
+  }
+
+  void _applyMedia(SavedAnime a, AlMedia m) {
+    a
+      ..malId = m.idMal ?? a.malId
+      ..alTotal = m.episodes ?? a.alTotal
+      ..banner = m.banner ?? a.banner
+      ..mediaStatus = m.status ?? a.mediaStatus
+      ..nextAirAt = m.nextAiringAt
+      ..nextAirEp = m.nextAiringEp;
+  }
+
   Future<void> linkAniList(SavedAnime a, AlMedia media) async {
     a
       ..anilistId = media.id
       ..malId = media.idMal
       ..alTotal = media.episodes;
+    _applyMedia(a, media);
     final e = await AniList.I.entry(media.id);
     a
       ..alStatus = e?.status
@@ -349,12 +454,12 @@ class AnimeStore extends ChangeNotifier {
         have
           ..alStatus = e.status
           ..alProgress = math.max(e.progress, have.alProgress)
-          ..alScore = e.score
-          ..alTotal = e.media.episodes ?? have.alTotal
-          ..malId = e.media.idMal ?? have.malId;
+          ..alScore = e.score;
+        _applyMedia(have, e.media);
         continue;
       }
-      if (e.status == 'DROPPED') continue;
+      // sulla TV anche gli abbandonati hanno il loro ripiano
+      if (e.status == 'DROPPED' && !tvMode) continue;
       final key = 'anilist||${e.media.id}';
       final a = _all[key] ??= SavedAnime(sourceId: '', managerId: 'anilist', sourceName: 'AniList', url: '${e.media.id}', title: e.media.title, cover: e.media.cover);
       a
@@ -364,6 +469,7 @@ class AnimeStore extends ChangeNotifier {
         ..alProgress = e.progress
         ..alScore = e.score
         ..alTotal = e.media.episodes;
+      _applyMedia(a, e.media);
       if (!a.inLibrary) {
         a.inLibrary = true;
         added++;
@@ -385,6 +491,11 @@ class AnimeStore extends ChangeNotifier {
       ..alProgress = from.alProgress
       ..alScore = from.alScore
       ..alTotal = from.alTotal
+      ..banner = from.banner
+      ..mediaStatus = from.mediaStatus
+      ..nextAirAt = from.nextAirAt
+      ..nextAirEp = from.nextAirEp
+      ..localStatus = from.localStatus
       ..caseColor = from.caseColor ?? dest.caseColor
       ..caseStyle = from.caseStyle;
     dest.cover ??= from.cover;
@@ -422,7 +533,8 @@ class AnimeStore extends ChangeNotifier {
         importAniList(await AniList.I.myList(type: 'ANIME'));
       } catch (_) {}
     }
-    final list = library.where((a) => !a.pending).toList();
+    // sulla TV si controllano solo i dischi sul lettore, uno alla volta
+    final list = library.where((a) => !a.pending && (!tvMode || a.section == 0)).toList();
     if (list.isEmpty) return 0;
     await ensureBridge();
     refreshing = true;
@@ -445,7 +557,7 @@ class AnimeStore extends ChangeNotifier {
       }
     }
 
-    await Future.wait([worker(), worker(), worker()]);
+    await Future.wait(tvMode ? [worker()] : [worker(), worker(), worker()]);
     refreshing = false;
     if (found > 0) {
       final names = list.where((a) => a.newEpisodes > 0).map((a) => '${a.title} (+${a.newEpisodes})').take(4).join(', ');

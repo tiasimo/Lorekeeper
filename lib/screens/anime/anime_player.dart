@@ -10,9 +10,12 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../services/anime_store.dart';
+import '../../services/crash_log.dart';
 import '../../services/library_store.dart';
 import '../../services/manga_store.dart';
 import '../../theme.dart';
+import '../../tv/tv_mode.dart';
+import '../../tv/tv_widgets.dart';
 
 /// Player degli episodi: qualità, sottotitoli, velocità, salta sigla (AniSkip),
 /// episodio successivo automatico e AniList aggiornato a fine episodio.
@@ -109,6 +112,7 @@ class _AnimePlayerState extends State<AnimePlayer> {
       await _play(_current!, start: a.positions[ep.url] ?? 0);
       _loadSkips(ep);
     } catch (e) {
+      if (tvMode) CrashLog.add('Player · ${a.sourceName} · ep. ${a.numberOf(ep)}: $e');
       if (my == _run && mounted) setState(() => _error = '$e'.replaceFirst('Exception: ', ''));
     } finally {
       if (my == _run && mounted) setState(() => _loading = false);
@@ -274,10 +278,16 @@ class _AnimePlayerState extends State<AnimePlayer> {
         builder: (ctx) => SafeArea(
           child: ConstrainedBox(
             constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.7),
-            child: ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), children: [
+            child: ListView(
+                shrinkWrap: true,
+                // sulla TV l'elenco parte dalla voce scelta, che prende la selezione del telecomando
+                controller: ScrollController(initialScrollOffset: tvMode && items.indexWhere((x) => x.$2) > 3 ? (items.indexWhere((x) => x.$2) - 2) * 56.0 : 0),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                children: [
               Padding(padding: const EdgeInsets.fromLTRB(4, 0, 4, 8), child: Text(title, style: LK.display(19))),
               for (final (label, sel, onTap) in items)
                 ListTile(
+                  autofocus: tvMode && (items.any((x) => x.$2) ? sel : identical(label, items.first.$1)),
                   title: Text(label, style: LK.body(14.5)),
                   trailing: sel ? Icon(Icons.check, color: LK.accent) : null,
                   onTap: () {
@@ -309,6 +319,23 @@ class _AnimePlayerState extends State<AnimePlayer> {
         if (t.file != null) (t.label ?? 'Sottotitoli', false, () => _player.setSubtitleTrack(SubtitleTrack.uri(t.file!, title: t.label, language: t.label))),
     ]);
   }
+
+  void _audioSheet() => _sheet('Audio', [
+        for (final t in _player.state.tracks.audio.where((t) => t.id != 'no'))
+          (
+            t.id == 'auto' ? 'Automatico' : (t.title ?? t.language ?? 'Traccia ${t.id}'),
+            _player.state.track.audio.id == t.id,
+            () => _player.setAudioTrack(t),
+          ),
+      ]);
+
+  /// Sulla TV: un solo menu (▲) per audio, sottotitoli, qualità e velocità.
+  void _tvOptions() => _sheet('Audio e sottotitoli', [
+        ('Sottotitoli', false, _subsSheet),
+        ('Audio', false, _audioSheet),
+        if (_videos.isNotEmpty) ('Qualità e server · ${_current?.quality ?? ''}', false, _qualitySheet),
+        ('Velocità · ${_rate}x', false, _speedSheet),
+      ]);
 
   void _speedSheet() => _sheet('Velocità', [
         for (final r in const [0.75, 1.0, 1.25, 1.5, 2.0])
@@ -538,6 +565,7 @@ class _AnimePlayerState extends State<AnimePlayer> {
   KeyEventResult _onKey(FocusNode node, KeyEvent e) {
     if (e is! KeyDownEvent && e is! KeyRepeatEvent) return KeyEventResult.ignored;
     final k = e.logicalKey;
+    if (tvMode) return _onKeyTv(k, e is KeyRepeatEvent);
     if (_ui && (k == LogicalKeyboardKey.arrowUp || k == LogicalKeyboardKey.arrowDown)) return KeyEventResult.ignored;
     if (_ui && (k == LogicalKeyboardKey.select || k == LogicalKeyboardKey.enter)) return KeyEventResult.ignored;
     if (k == LogicalKeyboardKey.arrowRight || k == LogicalKeyboardKey.mediaFastForward) {
@@ -566,6 +594,176 @@ class _AnimePlayerState extends State<AnimePlayer> {
     return KeyEventResult.handled;
   }
 
+  /// Telecomando della TV: ◀ ▶ ±10 s, OK pausa (o salta la sigla / riprova), ▲ audio e sottotitoli, ▼ episodi.
+  KeyEventResult _onKeyTv(LogicalKeyboardKey k, bool repeat) {
+    if (k == LogicalKeyboardKey.arrowRight || k == LogicalKeyboardKey.mediaFastForward) {
+      _seek(_pos + const Duration(seconds: 10));
+    } else if (k == LogicalKeyboardKey.arrowLeft || k == LogicalKeyboardKey.mediaRewind) {
+      _seek(_pos - const Duration(seconds: 10));
+    } else if (k == LogicalKeyboardKey.select ||
+        k == LogicalKeyboardKey.enter ||
+        k == LogicalKeyboardKey.numpadEnter ||
+        k == LogicalKeyboardKey.gameButtonA ||
+        k == LogicalKeyboardKey.mediaPlayPause ||
+        k == LogicalKeyboardKey.mediaPlay ||
+        k == LogicalKeyboardKey.mediaPause ||
+        k == LogicalKeyboardKey.space) {
+      if (repeat) return KeyEventResult.handled;
+      final skip = _activeSkip();
+      if (_error != null) {
+        _open(_ep);
+      } else if (skip != null) {
+        _seek(skip.$3);
+      } else if (_nextIn != null && _nextEp != null) {
+        _open(_nextEp!);
+      } else {
+        _player.playOrPause();
+        _bumpUi();
+      }
+    } else if (k == LogicalKeyboardKey.arrowUp) {
+      if (!repeat) _tvOptions();
+    } else if (k == LogicalKeyboardKey.arrowDown) {
+      if (!repeat) _episodesSheet();
+    } else if (k == LogicalKeyboardKey.mediaTrackNext && _nextEp != null) {
+      _open(_nextEp!);
+    } else if (k == LogicalKeyboardKey.mediaTrackPrevious && _prevEp != null) {
+      _open(_prevEp!);
+    } else {
+      return KeyEventResult.ignored;
+    }
+    return KeyEventResult.handled;
+  }
+
+  /// I comandi sulla TV: scritte da lettore DVD, niente pulsanti da toccare.
+  Widget _tvControls() {
+    final skip = _activeSkip();
+    final total = a.alTotal ?? a.episodes.length;
+    String two(int n) => n.toString().padLeft(2, '0');
+    String clock(Duration d) => '${two(d.inHours)}:${two(d.inMinutes % 60)}:${two(d.inSeconds % 60)}';
+    final frac = _dur.inMilliseconds == 0 ? 0.0 : (_pos.inMilliseconds / _dur.inMilliseconds).clamp(0.0, 1.0);
+    final left = _dur - _pos;
+    final show = _ui || !_playing || _error != null;
+    Widget pill(String text) => Container(
+          height: 48,
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          alignment: Alignment.center,
+          decoration: const BoxDecoration(color: TV.accent, boxShadow: [BoxShadow(color: TV.ink, spreadRadius: 6), BoxShadow(color: TV.bg, spreadRadius: 3)]),
+          child: Text(text, style: tvDisplay(18, color: TV.bg, spacing: 2)),
+        );
+    return TvCanvas(
+      color: null,
+      child: Stack(children: [
+        if ((_buffering || _loading) && _error == null) const Center(child: CircularProgressIndicator(color: TV.accent)),
+        if (_error != null)
+          Center(
+            child: Container(
+              width: 760,
+              padding: const EdgeInsets.all(26),
+              color: const Color(0xF217181C),
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('NON RIESCO A RIPRODURRE L\'EPISODIO', style: tvDisplay(26, weight: FontWeight.w700)),
+                const SizedBox(height: 10),
+                Text(_error!, maxLines: 6, overflow: TextOverflow.ellipsis, style: tvBody(14)),
+                const SizedBox(height: 16),
+                Text('OK RIPROVA   ▲ CAMBIA SERVER   ▼ ALTRO EPISODIO   INDIETRO ESCI', style: tvMono(12, color: TV.peach, weight: FontWeight.w700)),
+                const SizedBox(height: 6),
+                Text('Il dettaglio resta in Impostazioni › Errori recenti.', style: tvBody(12, color: TV.muted)),
+              ]),
+            ),
+          ),
+        IgnorePointer(
+          child: AnimatedOpacity(
+            opacity: show ? 1 : 0,
+            duration: const Duration(milliseconds: 180),
+            child: Stack(children: [
+              const Positioned(
+                left: 0,
+                right: 0,
+                top: 0,
+                height: 170,
+                child: DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xCC0A0A0B), Color(0x000A0A0B)]))),
+              ),
+              const Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: 300,
+                child: DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x000A0A0B), Color(0xF00A0A0B)], stops: [0, 0.7]))),
+              ),
+              Positioned(
+                left: 48,
+                top: 34,
+                child: Row(children: [
+                  Icon(_playing ? Icons.play_arrow : Icons.pause, color: TV.peach, size: 26),
+                  const SizedBox(width: 6),
+                  Text(_playing ? 'PLAY' : 'PAUSA', style: tvMono(22, color: TV.peach, weight: FontWeight.w700).copyWith(letterSpacing: 2)),
+                  if (_rate != 1.0) Padding(padding: const EdgeInsets.only(left: 14), child: Text('${_rate}x', style: tvMono(16, color: TV.ink))),
+                ]),
+              ),
+              Positioned(
+                right: 48,
+                top: 30,
+                child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  Text('EP ${two(a.numberOf(_ep))}${total > 0 ? '/${two(total)}' : ''}', style: tvMono(22, color: TV.ink, weight: FontWeight.w700)),
+                  const SizedBox(height: 4),
+                  Text(clock(_pos), style: tvMono(15, color: const Color(0xFFD6D9DD))),
+                ]),
+              ),
+              Positioned(
+                left: 48,
+                right: 48,
+                bottom: 34,
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
+                    Flexible(child: Text(a.title.toUpperCase(), maxLines: 1, overflow: TextOverflow.ellipsis, style: tvDisplay(24, spacing: 1.5))),
+                    const SizedBox(width: 14),
+                    Flexible(child: Text('${a.numberOf(_ep)} · ${_ep.name}', maxLines: 1, overflow: TextOverflow.ellipsis, style: tvBody(15, color: const Color(0xFFD6D9DD)))),
+                  ]),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    height: 20,
+                    child: LayoutBuilder(builder: (context, c) {
+                      final w = c.maxWidth;
+                      return Stack(clipBehavior: Clip.none, children: [
+                        Positioned(left: 0, right: 0, top: 0, height: 6, child: Container(color: const Color(0x42F3F4F5))),
+                        Positioned(left: 0, top: 0, width: w * frac, height: 6, child: Container(color: TV.accent)),
+                        Positioned(left: w * frac - 2, top: -5, width: 4, height: 16, child: Container(color: Colors.white)),
+                        // le sigle, segnate sotto la barra
+                        if (_dur.inMilliseconds > 0)
+                          for (final s in _skips)
+                            Positioned(
+                              left: w * s.$2.inMilliseconds / _dur.inMilliseconds,
+                              width: w * (s.$3 - s.$2).inMilliseconds / _dur.inMilliseconds,
+                              top: 10,
+                              height: 3,
+                              child: Container(color: TV.ink),
+                            ),
+                      ]);
+                    }),
+                  ),
+                  Row(children: [
+                    Text(_fmt(_pos), style: tvMono(14, color: TV.ink)),
+                    const SizedBox(width: 18),
+                    if (_skips.isNotEmpty) Text('SIGLE SEGNATE SOTTO LA BARRA', style: tvMono(12, color: TV.soft)),
+                    const Spacer(),
+                    Text([a.sourceName, if ((_current?.quality ?? '').isNotEmpty) _current!.quality].join(' · ').toUpperCase(), maxLines: 1, style: tvMono(12, color: TV.soft)),
+                    const SizedBox(width: 18),
+                    Text('-${_fmt(left.isNegative ? Duration.zero : left)}', style: tvMono(14, color: TV.ink)),
+                  ]),
+                ]),
+              ),
+              const Positioned(left: 28, bottom: 8, child: TvHints(['◀▶ ±10 S', 'OK PAUSA', '▲ AUDIO E SOTTOTITOLI', '▼ EPISODI'])),
+            ]),
+          ),
+        ),
+        if (skip != null && _error == null)
+          Positioned(right: 48, bottom: 132, child: pill(skip.$1 == 'ed' ? 'OK · SALTA SIGLA FINALE' : skip.$1 == 'recap' ? 'OK · SALTA RIASSUNTO' : 'OK · SALTA SIGLA'))
+        else if (_nextIn != null && _nextEp != null && _error == null)
+          Positioned(right: 48, bottom: 132, child: pill('EP. ${two(a.numberOf(_nextEp!))} TRA $_nextIn S · OK PARTE SUBITO')),
+      ]),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Focus(focusNode: _keyFocus, autofocus: true, onKeyEvent: _onKey, child: _buildPlayer(context));
 
@@ -573,9 +771,9 @@ class _AnimePlayerState extends State<AnimePlayer> {
     final land = MediaQuery.orientationOf(context) == Orientation.landscape;
     final player = Stack(children: [
       Positioned.fill(child: Video(controller: _video, controls: NoVideoControls, fill: Colors.black)),
-      Positioned.fill(child: _controls(land)),
+      Positioned.fill(child: tvMode ? _tvControls() : _controls(land)),
     ]);
-    if (land) return Scaffold(backgroundColor: Colors.black, body: player);
+    if (land || tvMode) return Scaffold(backgroundColor: Colors.black, body: player);
     final o = a.ordered;
     final i = o.indexWhere((e) => e.url == _ep.url);
     final upcoming = i < 0 ? <MChapter>[] : o.sublist(i + 1, (i + 6).clamp(0, o.length));
