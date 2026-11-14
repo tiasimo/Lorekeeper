@@ -32,10 +32,11 @@ class _TvNowPlayingState extends State<TvNowPlaying> {
     super.dispose();
   }
 
-  /// I dischi sul lettore: prima quelli in corso (dall'ultimo guardato), in fondo quelli in pausa.
+  /// I dischi sul lettore: prima le serie ancora in onda, poi le altre (dall'ultimo guardato),
+  /// in fondo quelle in pausa.
   List<SavedAnime> _discs() {
     final list = AnimeStore.I.library.where((a) => a.section == 0).toList();
-    int rank(SavedAnime a) => a.listStatus == 'PAUSED' ? 1 : 0;
+    int rank(SavedAnime a) => a.listStatus == 'PAUSED' ? 2 : (a.mediaStatus == 'RELEASING' ? 0 : 1);
     list.sort((x, y) {
       final r = rank(x).compareTo(rank(y));
       if (r != 0) return r;
@@ -168,6 +169,7 @@ class _TvNowPlayingState extends State<TvNowPlaying> {
     final meta = [
       if (total > 0) '$total episodi',
       if (a.listStatus == 'PAUSED') 'in pausa',
+      if (a.mediaStatus == 'RELEASING') 'in onda',
       if (a.newEpisodes > 0) '${a.newEpisodes} episodi nuovi',
       if (next != null && air != null) 'ep. ${a.nextAirEp ?? ''} ${tvWhen(air)}'.replaceAll('  ', ' '),
       if (a.alScore > 0) 'il tuo voto ★ ${a.alScore % 1 == 0 ? a.alScore.toInt() : a.alScore}',
