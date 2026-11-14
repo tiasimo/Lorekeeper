@@ -22,8 +22,9 @@ class AlMedia {
   final String? english, romaji, cover;
   final int? chapters, year, episodes, idMal;
   final String? format, status, banner;
+  final List<String> synonyms;
   final int? nextAiringAt, nextAiringEp; // prossimo episodio in onda (secondi dall'epoca, numero)
-  AlMedia({required this.id, required this.title, this.english, this.romaji, this.cover, this.chapters, this.year, this.format, this.status, this.episodes, this.idMal, this.banner, this.nextAiringAt, this.nextAiringEp});
+  AlMedia({required this.id, required this.title, this.english, this.romaji, this.cover, this.chapters, this.year, this.format, this.status, this.episodes, this.idMal, this.banner, this.nextAiringAt, this.nextAiringEp, this.synonyms = const []});
 
   factory AlMedia.fromJson(Map j) {
     final t = (j['title'] as Map?) ?? const {};
@@ -40,6 +41,7 @@ class AlMedia {
       format: j['format'] as String?,
       status: j['status'] as String?,
       banner: j['bannerImage'] as String?,
+      synonyms: ((j['synonyms'] as List?) ?? const []).whereType<String>().toList(),
       nextAiringAt: (j['nextAiringEpisode'] as Map?)?['airingAt'] as int?,
       nextAiringEp: (j['nextAiringEpisode'] as Map?)?['episode'] as int?,
     );
@@ -47,6 +49,9 @@ class AlMedia {
 
   /// Titoli con cui cercarlo nelle sorgenti.
   List<String> get titles => {title, if (english != null) english!, if (romaji != null) romaji!}.where((t) => t.isNotEmpty).toList();
+
+  /// Tutti i nomi con cui può comparire (anche gli alternativi), per riconoscerlo nelle fonti.
+  List<String> get allTitles => {...titles, ...synonyms}.where((t) => t.isNotEmpty).toList();
 }
 
 class AlEntry {
@@ -167,7 +172,7 @@ class AniList extends ChangeNotifier {
     return j['data'] as Map;
   }
 
-  static const _mediaFields = 'id title { userPreferred romaji english } coverImage { large medium } chapters episodes idMal format status startDate { year } bannerImage nextAiringEpisode { airingAt episode }';
+  static const _mediaFields = 'id title { userPreferred romaji english } coverImage { large medium } chapters episodes idMal format status startDate { year } bannerImage synonyms nextAiringEpisode { airingAt episode }';
 
   Future<List<AlMedia>> search(String text, {String type = 'MANGA'}) async {
     final d = await _query('query (\$s: String) { Page(perPage: 15) { media(search: \$s, type: $type, sort: SEARCH_MATCH) { $_mediaFields } } }', {'s': text});

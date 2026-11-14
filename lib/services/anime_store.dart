@@ -17,6 +17,23 @@ import 'library_store.dart';
 import 'manga_store.dart';
 import 'reminders.dart';
 
+/// Un titolo ridotto all'essenziale per confrontarlo: minuscole, senza punteggiatura,
+/// "Season 2" / "2nd Season" / "Stagione 2" / "II" diventano "2", via "(ITA)" e "Sub ITA".
+String normAnimeTitle(String s) {
+  var t = ' ${s.toLowerCase()} ';
+  t = t.replaceAll(RegExp('[’\'`"]'), '');
+  t = t.replaceAll(RegExp(r'\((sub\s*)?ita\)|\[(sub\s*)?ita\]|\bsub\s*ita\b|\bdub(bed)?\b|\(ita\s*dub\)'), ' ');
+  t = t.replaceAll(RegExp(r'[^a-z0-9]+'), ' ');
+  t = t.replaceAllMapped(RegExp(r' (\d+)(st|nd|rd|th) (season|stagione|cour|part) '), (m) => ' ${m[1]} ');
+  t = t.replaceAllMapped(RegExp(r' (season|stagione|s|part|parte|cour) (\d+) '), (m) => ' ${m[2]} ');
+  const roman = {'ii': '2', 'iii': '3', 'iv': '4', 'v': '5', 'vi': '6'};
+  t = t.replaceAllMapped(RegExp(r' (ii|iii|iv|v|vi) '), (m) => ' ${roman[m[1]]} ');
+  t = t.replaceAll(RegExp(r'\s+'), ' ').trim();
+  // "season 1" non conta: "Blue Box" e "Blue Box 1" sono la stessa serie
+  if (t.endsWith(' 1')) t = t.substring(0, t.length - 2);
+  return t;
+}
+
 /// Un anime nella videoteca, legato alla sorgente da cui viene.
 class SavedAnime {
   final String sourceId, managerId, sourceName;
@@ -42,6 +59,7 @@ class SavedAnime {
   String? mediaStatus; // stato della serie su AniList: FINISHED, RELEASING…
   int? nextAirAt, nextAirEp; // prossimo episodio in onda (secondi dall'epoca, numero)
   String? localStatus; // stato scelto a mano quando AniList non c'è (stessi valori di alStatus)
+  List<String> altTitles = []; // altri nomi su AniList (inglese, romaji, sinonimi)
   // colore della custodia (preso dalla copertina)
   int? caseColor;
   String caseStyle = 'Blu-ray'; // Blu-ray | 4K | Steelbook
@@ -187,6 +205,7 @@ class SavedAnime {
         'al': anilistId, 'mal': malId, 'als': alStatus, 'alp': alProgress, 'alsc': alScore, 'alt': alTotal, 'cc': caseColor, 'cs': caseStyle,
         if (banner != null) 'bn': banner, if (mediaStatus != null) 'alms': mediaStatus, if (nextAirAt != null) 'nxa': nextAirAt, if (nextAirEp != null) 'nxe': nextAirEp,
         if (localStatus != null) 'ls': localStatus,
+        if (altTitles.isNotEmpty) 'alts': altTitles,
       };
 
   factory SavedAnime.fromJson(Map j) => SavedAnime(
@@ -219,7 +238,8 @@ class SavedAnime {
         ..mediaStatus = j['alms'] as String?
         ..nextAirAt = j['nxa'] as int?
         ..nextAirEp = j['nxe'] as int?
-        ..localStatus = j['ls'] as String?;
+        ..localStatus = j['ls'] as String?
+        ..altTitles = ((j['alts'] as List?) ?? const []).whereType<String>().toList();
 }
 
 /// Sezione Anime: estensioni anime (Mangayomi e Aniyomi) con lo stesso motore dei manga,
@@ -264,6 +284,7 @@ class AnimeStore extends ChangeNotifier {
       final h = sp.getString('anime.history');
       if (h != null) history.addAll((jsonDecode(h) as List).map((e) => MangaEvent.fromJson(e as Map)));
     } catch (_) {}
+    if (_dedupe()) save();
     // le copertine della videoteca non si cancellano mai dalla cache
     MangaImages.protectedSources['anime'] = () => {
           for (final a in _all.values)
@@ -418,6 +439,8 @@ class AnimeStore extends ChangeNotifier {
   }
 
   void _applyMedia(SavedAnime a, AlMedia m) {
+    final names = m.allTitles;
+    if (names.isNotEmpty) a.altTitles = names;
     a
       ..malId = m.idMal ?? a.malId
       ..alTotal = m.episodes ?? a.alTotal
@@ -482,8 +505,71 @@ class AnimeStore extends ChangeNotifier {
         added++;
       }
     }
+    // l'anime della lista AniList che è già in videoteca da una fonte (magari con un altro nome)
+    // si attacca a quello invece di comparire due volte
+    final before = _all.length;
+    _dedupe();
+    added = math.max(0, added - (before - _all.length));
     save();
     return added;
+  }
+
+  DateTime _used(SavedAnime a) => a.lastWatchedAt ?? a.addedAt;
+
+  /// Porta su [to] lo stato della lista di [from] (AniList, sezione, progressi) dove [to] non ce l'ha.
+  void _absorb(SavedAnime to, SavedAnime from) {
+    to.anilistId ??= from.anilistId;
+    to.malId ??= from.malId;
+    to.alStatus ??= from.alStatus;
+    to.localStatus ??= from.localStatus;
+    to.alProgress = math.max(to.alProgress, from.alProgress);
+    if (to.alScore == 0) to.alScore = from.alScore;
+    to.alTotal ??= from.alTotal;
+    to.banner ??= from.banner;
+    to.mediaStatus ??= from.mediaStatus;
+    to.nextAirAt ??= from.nextAirAt;
+    to.nextAirEp ??= from.nextAirEp;
+    if (to.altTitles.isEmpty) to.altTitles = from.altTitles;
+    if (from.inLibrary) to.inLibrary = true;
+    if (from.addedAt.isBefore(to.addedAt)) to.addedAt = from.addedAt;
+  }
+
+  /// Toglie i doppioni: lo stesso anime arrivato da AniList e da una fonte (anche con nomi diversi,
+  /// "Blue Box 2" e "Blue Box Season 2"), o lo stesso titolo AniList su due fonti.
+  /// Restituisce true se ha cambiato qualcosa.
+  bool _dedupe() {
+    var changed = false;
+    final real = _all.values.where((a) => !a.pending).toList()..sort((x, y) => _used(y).compareTo(_used(x)));
+    // 1. stesso titolo AniList su due fonti: resta quello usato per ultimo
+    final byAl = <int, SavedAnime>{};
+    for (final a in real) {
+      final id = a.anilistId;
+      if (id == null) continue;
+      final keep = byAl[id];
+      if (keep == null) {
+        byAl[id] = a;
+      } else if (a.inLibrary && keep.inLibrary) {
+        _absorb(keep, a);
+        _all.remove(a.key);
+        changed = true;
+      }
+    }
+    // 2. gli anime arrivati da AniList senza fonte
+    final unlinked = real.where((a) => a.anilistId == null && _all.containsKey(a.key)).toList();
+    for (final p in _all.values.where((a) => a.pending).toList()) {
+      var target = p.anilistId == null ? null : byAl[p.anilistId];
+      if (target == null) {
+        final names = {for (final t in [p.title, ...p.altTitles]) normAnimeTitle(t)}..remove('');
+        target = unlinked.where((a) => names.contains(normAnimeTitle(a.title))).firstOrNull;
+        if (target != null) unlinked.remove(target);
+      }
+      if (target == null) continue;
+      _absorb(target, p);
+      _all.remove(p.key);
+      if (target.anilistId != null) byAl[target.anilistId!] = target;
+      changed = true;
+    }
+    return changed;
   }
 
   /// Collega a una sorgente un anime importato da AniList.
