@@ -91,7 +91,16 @@ class _TvHomeState extends State<TvHome> {
 
   /// ▼ dalle sezioni: va al primo elemento del contenuto (non a quello che sta "sotto").
   KeyEventResult _tabsKey(FocusNode node, KeyEvent e) {
-    if (e is! KeyDownEvent || e.logicalKey != LogicalKeyboardKey.arrowDown) return KeyEventResult.ignored;
+    final k = e.logicalKey;
+    // ◀ ▶ passano alla sezione accanto, per posizione nell'elenco (non "la cosa più vicina sullo schermo")
+    if (k == LogicalKeyboardKey.arrowLeft || k == LogicalKeyboardKey.arrowRight) {
+      if (e is KeyUpEvent) return KeyEventResult.handled;
+      final cur = _tabNodes.indexWhere((n) => n.hasFocus);
+      final to = ((cur < 0 ? _tab : cur) + (k == LogicalKeyboardKey.arrowRight ? 1 : -1)).clamp(0, _tabs.length - 1);
+      _tabNodes[to].requestFocus();
+      return KeyEventResult.handled;
+    }
+    if (e is! KeyDownEvent || k != LogicalKeyboardKey.arrowDown) return KeyEventResult.ignored;
     final first = _content.traversalDescendants.where((n) => n.canRequestFocus && !n.skipTraversal).firstOrNull;
     first?.requestFocus();
     return KeyEventResult.handled;
@@ -121,6 +130,7 @@ class _TvHomeState extends State<TvHome> {
               onKeyEvent: _contentKey,
               child: FocusScope(
                 node: _content,
+                skipTraversal: true,
                 child: !_ready
                     ? const Center(child: CircularProgressIndicator(color: TV.accent))
                     : switch (_tab) {
