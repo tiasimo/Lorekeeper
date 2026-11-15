@@ -87,9 +87,19 @@ class MangaImages {
   static Uint8List? peek(String url) => _mem[url];
 
   /// [prefetch]: in fondo alla coda, dopo tutto il resto.
+  static final _localReads = <String, Future<Uint8List?>>{};
+
   static Future<Uint8List?> get(String url, {Map<String, String>? headers, String? sourceId, String? managerId, bool prefetch = false}) {
     final hit = _mem[url];
     if (hit != null) return Future.value(hit);
+    // un file già sul telefono (capitolo scaricato) si legge subito, senza mettersi in coda
+    // dietro ai download delle copertine
+    if (url.startsWith('/')) {
+      return _localReads[url] ??= File(url).readAsBytes().then<Uint8List?>((b) {
+        _remember(url, b);
+        return b;
+      }).whenComplete(() => _localReads.remove(url));
+    }
     final j = _jobs[url];
     if (j != null) {
       if (!prefetch) j.prefetch = false;

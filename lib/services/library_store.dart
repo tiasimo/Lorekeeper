@@ -490,9 +490,15 @@ class LibraryStore extends ChangeNotifier {
 
       order.sort((a, b) => rank(a).compareTo(rank(b)));
     }
+    // il nome scelto a mano vince su quello della serie
+    String? name(String k) {
+      final n = (app.shelfLooks[k]?['name'] as String?)?.trim();
+      return (n == null || n.isEmpty) ? titles[k] : n;
+    }
+
     return [
       for (final k in order)
-        if (items[k]!.any((e) => e.startsWith('b:'))) (k, titles[k], items[k]!)
+        if (items[k]!.any((e) => e.startsWith('b:'))) (k, name(k), items[k]!)
     ];
   }
 

@@ -753,19 +753,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
               Padding(
                 padding: EdgeInsets.fromLTRB(wallOf(groups[i].$1) ? 14 : 24, i == 0 || wallOf(groups[i].$1) ? 4 : 22, wallOf(groups[i].$1) ? 8 : 16, 6),
                 child: Row(children: [
-                  Flexible(
-                    child: shelfTitlePill(
-                      Row(mainAxisSize: MainAxisSize.min, children: [
-                        Flexible(
-                          child: Text(groups[i].$2 ?? 'Altri libri', maxLines: 1, overflow: TextOverflow.ellipsis, style: LK.display(18, color: LK.accent, style: FontStyle.italic)),
+                  // il nome prende tutto lo spazio libero e va a capo invece di tagliarsi; toccandolo si cambia
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: GestureDetector(
+                        onTap: () => renameShelf(context, key: groups[i].$1, current: groups[i].$2 ?? 'Altri libri'),
+                        child: shelfTitlePill(
+                          Row(mainAxisSize: MainAxisSize.min, children: [
+                            Flexible(
+                              child: Text(groups[i].$2 ?? 'Altri libri', maxLines: 3, softWrap: true, style: LK.display(18, color: LK.accent, style: FontStyle.italic)),
+                            ),
+                            const SizedBox(width: 10),
+                            Text('${groups[i].$3.where((e) => e.startsWith('b:')).length} volumi', style: LK.label(10, spacing: 0.6)),
+                          ]),
+                          onWall: wallOf(groups[i].$1),
                         ),
-                        const SizedBox(width: 10),
-                        Text('${groups[i].$3.where((e) => e.startsWith('b:')).length} volumi', style: LK.label(10, spacing: 0.6)),
-                      ]),
-                      onWall: wallOf(groups[i].$1),
+                      ),
                     ),
                   ),
-                  const Spacer(),
                   if (groups.length > 1)
                     IconButton(
                       tooltip: 'Cambia l\'ordine degli scaffali',

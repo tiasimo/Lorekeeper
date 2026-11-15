@@ -11,8 +11,20 @@ class PageInfo {
   final Uint8List bytes;
   final Size size;
   final Rect crop; // area utile
-  PageInfo(this.bytes, this.size, this.crop);
+  final bool cropped; // i bordi sono stati davvero calcolati
+  PageInfo(this.bytes, this.size, this.crop, {this.cropped = true});
   bool get wide => size.width > size.height * 1.05;
+
+  late final MemoryImage memory = MemoryImage(bytes);
+
+  /// L'immagine da disegnare: ridotta alla risoluzione dello schermo (con un po' di margine per lo zoom),
+  /// così si decodifica in fretta e non occupa memoria inutile.
+  ImageProvider providerFor(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    // la pagina non è mai più larga dello schermo: basta quella risoluzione, più margine per lo zoom
+    final target = (mq.size.width * mq.devicePixelRatio * 1.5).round().clamp(720, 2600);
+    return size.width > target ? ResizeImage(memory, width: target) : memory;
+  }
 }
 
 class PageInfos {
@@ -21,21 +33,28 @@ class PageInfos {
 
   static PageInfo? peek(String url) => _cache[url];
 
-  static Future<PageInfo> get(String url, Uint8List bytes) {
+  static Future<PageInfo> get(String url, Uint8List bytes, {bool crop = true}) {
     final c = _cache[url];
-    if (c != null) return Future.value(c);
-    return _pending[url] ??= _analyze(bytes).then((p) {
+    if (c != null && (c.cropped || !crop)) return Future.value(c);
+    final key = crop ? '$url#c' : url;
+    return _pending[key] ??= _analyze(bytes, crop).then((p) {
       _cache[url] = p;
       if (_cache.length > 300) _cache.remove(_cache.keys.first);
       return p;
-    }).whenComplete(() => _pending.remove(url));
+    }).whenComplete(() => _pending.remove(key));
   }
 
-  static Future<PageInfo> _analyze(Uint8List bytes) async {
+  static Future<PageInfo> _analyze(Uint8List bytes, bool wantCrop) async {
     final buf = await ui.ImmutableBuffer.fromUint8List(bytes);
     final desc = await ui.ImageDescriptor.encoded(buf);
     final size = Size(desc.width.toDouble(), desc.height.toDouble());
     var crop = const Rect.fromLTRB(0, 0, 1, 1);
+    // senza ritaglio dei bordi basta leggere le dimensioni: niente decodifica
+    if (!wantCrop) {
+      desc.dispose();
+      buf.dispose();
+      return PageInfo(bytes, size, crop, cropped: false);
+    }
     try {
       // analisi su una copia piccola
       final tw = 120;
@@ -156,14 +175,14 @@ class _MangaPageState extends State<MangaPage> {
 
   void _go() {
     final cached = PageInfos.peek(widget.url);
-    if (cached != null) {
+    if (cached != null && (cached.cropped || !widget.crop)) {
       _info = cached;
       WidgetsBinding.instance.addPostFrameCallback((_) => widget.onInfo?.call(cached));
       return;
     }
     MangaImages.get(widget.url, headers: widget.headers, sourceId: widget.sourceId, managerId: widget.managerId).then((b) async {
       if (b == null) throw Exception('immagine vuota');
-      final info = await PageInfos.get(widget.url, b);
+      final info = await PageInfos.get(widget.url, b, crop: widget.crop);
       if (!mounted) return;
       setState(() => _info = info);
       widget.onInfo?.call(info);
@@ -211,7 +230,7 @@ class _MangaPageState extends State<MangaPage> {
         alignment: Alignment(align(r.left, wf), align(r.top, hf)),
         widthFactor: wf,
         heightFactor: hf,
-        child: Image.memory(info.bytes, width: info.size.width, height: info.size.height, fit: BoxFit.fill, gaplessPlayback: true, filterQuality: FilterQuality.medium),
+        child: Image(image: info.providerFor(context), width: info.size.width, height: info.size.height, fit: BoxFit.fill, gaplessPlayback: true, filterQuality: FilterQuality.medium),
       ),
     );
     if (widget.rotateWide && widget.half == 0 && info.wide && !widget.fitWidth) img = RotatedBox(quarterTurns: 1, child: img);

@@ -30,6 +30,9 @@ Future<void> main() async {
     PaintingBinding.instance.imageCache
       ..maximumSize = 60
       ..maximumSizeBytes = 40 << 20;
+  } else {
+    // sul telefono le pagine dei manga già pronte restano in memoria mentre leggi
+    PaintingBinding.instance.imageCache.maximumSizeBytes = 200 << 20;
   }
   // se una schermata va in errore, mostro il motivo invece di un riquadro grigio
   ErrorWidget.builder = (details) => Container(

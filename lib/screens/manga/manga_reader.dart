@@ -231,9 +231,21 @@ class _MangaReaderState extends State<MangaReader> {
     }
   }
 
+  /// Prepara le pagine successive: le scarica (o le legge dal telefono), ne misura i bordi e le
+  /// decodifica, così quando ci arrivi sono già pronte. La più vicina parte per ultima perché la coda
+  /// serve prima l'ultima richiesta.
   void _prefetch(int from) {
-    for (var i = from + 1; i <= from + 3 && i < _pages.length; i++) {
-      MangaImages.get(_pages[i].url, headers: _pages[i].headers, sourceId: m.sourceId, managerId: m.managerId).catchError((_) => null);
+    if (_pages.isEmpty) return;
+    final local = _pages.first.url.startsWith('/');
+    final ahead = local ? 6 : 4;
+    final crop = _webtoon ? _p.webtoonCrop : _p.cropBorders;
+    for (var i = (from + ahead).clamp(0, _pages.length - 1); i > from; i--) {
+      final pg = _pages[i];
+      MangaImages.get(pg.url, headers: pg.headers, sourceId: m.sourceId, managerId: m.managerId).then((b) async {
+        if (b == null || !mounted) return;
+        final info = await PageInfos.get(pg.url, b, crop: crop);
+        if (mounted) await precacheImage(info.providerFor(context), context);
+      }).catchError((_) {});
     }
   }
 

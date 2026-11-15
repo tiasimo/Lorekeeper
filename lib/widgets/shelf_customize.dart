@@ -7,6 +7,42 @@ import 'seasonal.dart';
 import 'shelf_backdrop.dart';
 import 'spine.dart';
 
+/// Cambia il nome di uno scaffale delle novel (vuoto = torna al nome della serie).
+Future<void> renameShelf(BuildContext context, {required String key, required String current}) async {
+  final store = LibraryStore.I;
+  final ctrl = TextEditingController(text: (store.app.shelfLooks[key]?['name'] as String?) ?? current);
+  final name = await showDialog<String>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: LK.paper,
+      title: Text('Nome dello scaffale', style: LK.display(19)),
+      content: TextField(
+        controller: ctrl,
+        autofocus: true,
+        maxLines: 2,
+        minLines: 1,
+        textCapitalization: TextCapitalization.sentences,
+        decoration: const InputDecoration(hintText: 'Lascia vuoto per il nome della serie'),
+        onSubmitted: (v) => Navigator.pop(ctx, v),
+      ),
+      actions: [
+        if (store.app.shelfLooks[key]?['name'] != null) TextButton(onPressed: () => Navigator.pop(ctx, ''), child: Text('Nome originale', style: LK.body(14, color: LK.muted))),
+        TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Annulla', style: LK.body(14, color: LK.muted))),
+        FilledButton(style: FilledButton.styleFrom(backgroundColor: LK.accent), onPressed: () => Navigator.pop(ctx, ctrl.text), child: const Text('Salva')),
+      ],
+    ),
+  );
+  if (name == null) return;
+  final m = Map<String, dynamic>.from(store.app.shelfLooks[key] ?? {});
+  if (name.trim().isEmpty || name.trim() == current) {
+    if (name.trim().isEmpty) m.remove('name');
+  } else {
+    m['name'] = name.trim();
+  }
+  store.app.shelfLooks[key] = m;
+  store.saveAppPrefs();
+}
+
 /// Personalizza un singolo scaffale: sfondo, legno e decorazioni delle feste.
 Future<void> showShelfCustomize(BuildContext context, {required String key, required String title, bool manga = false}) {
   return showModalBottomSheet(
@@ -58,7 +94,18 @@ Future<void> showShelfCustomize(BuildContext context, {required String key, requ
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Scaffale «$title»', style: LK.display(19)),
+            Row(children: [
+              Expanded(child: Text('Scaffale «$title»', style: LK.display(19))),
+              if (!manga)
+                TextButton.icon(
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    await renameShelf(context, key: key, current: title);
+                  },
+                  icon: Icon(Icons.edit_outlined, size: 17, color: LK.accent),
+                  label: Text('Rinomina', style: LK.body(14, color: LK.accent)),
+                ),
+            ]),
             const SizedBox(height: 14),
             Text('SFONDO', style: LK.label(10, spacing: 1.4)),
             const SizedBox(height: 8),
